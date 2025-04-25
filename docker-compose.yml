@@ -6,6 +6,8 @@ services:
       - "5000:5000"
     environment:
       - FLASK_ENV=production
+      # 取消注释并设置此变量以启用密码保护
+      # - APP_PASSWORD=your_password
     restart: always
     volumes:
       - ./data/account:/app/account

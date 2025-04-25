@@ -3,9 +3,11 @@ import os
 import time
 import uuid
 import webbrowser
+import functools
+import argparse  # 导入参数解析库
 
 import requests
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 
 # 导入 pikpak.py 中的函数
 from utils.pk_email import connect_imap
@@ -19,19 +21,74 @@ from utils.pikpak import (
     test_proxy,
 )
 
+# 解析命令行参数
+parser = argparse.ArgumentParser(description="PikPak 自动邀请注册系统")
+parser.add_argument("--password", help="设置访问密码")
+args = parser.parse_args()
+
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
+# 优先使用命令行参数中的密码，如果没有则使用环境变量
+APP_PASSWORD = args.password if args.password else os.environ.get('APP_PASSWORD', '')
+
+def login_required(f):
+    @functools.wraps(f)
+    def decorated_function(*args, **kwargs):
+        # 如果没有设置密码，直接允许访问
+        if not APP_PASSWORD:
+            return f(*args, **kwargs)
+        
+        # 如果已经登录，允许访问
+        if session.get('authenticated'):
+            return f(*args, **kwargs)
+            
+        # 否则重定向到登录页面
+        return redirect(url_for('login'))
+    return decorated_function
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    # 如果没有设置密码，重定向到主页
+    if not APP_PASSWORD:
+        return redirect(url_for('index'))
+        
+    error = None
+    if request.method == 'POST':
+        if request.form.get('password') == APP_PASSWORD:
+            session['authenticated'] = True
+            return redirect(url_for('index'))
+        else:
+            error = '密码错误，请重试'
+            
+    return render_template('login.html', error=error)
+
+@app.route('/logout')
+def logout():
+    session.pop('authenticated', None)
+    return redirect(url_for('login'))
 
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html")
 
 @app.route('/health')
 def health_check():
-    return jsonify({"status": "OK"})
+    # 检查是否在HuggingFace环境中
+    in_huggingface = os.environ.get('SPACE_ID') is not None or os.environ.get('SYSTEM') == 'spaces'
+    
+    return jsonify({
+        "status": "OK", 
+        "environment": {
+            "huggingface": in_huggingface,
+            "password_protected": bool(APP_PASSWORD),
+            "python_version": os.sys.version
+        }
+    })
     
 @app.route("/initialize", methods=["POST"])
+@login_required
 def initialize():
     # 获取用户表单输入
     use_proxy = request.form.get("use_proxy") == "true"
@@ -110,6 +167,7 @@ def initialize():
 
 
 @app.route("/verify_captcha", methods=["POST"])
+@login_required
 def verify_captcha():
     # 从会话中获取存储的数据
     device_id = session.get("device_id")
@@ -227,6 +285,7 @@ def verify_captcha():
 
 
 @app.route("/register", methods=["POST"])
+@login_required
 def register():
     # 从表单获取验证码
     verification_code = request.form.get("verification_code")
@@ -319,6 +378,7 @@ def register():
 
 
 @app.route("/test_proxy", methods=["POST"])
+@login_required
 def test_proxy_route():
     proxy_url = request.form.get("proxy_url", "http://127.0.0.1:7890")
     result = test_proxy(proxy_url)
@@ -332,6 +392,7 @@ def test_proxy_route():
 
 
 @app.route("/get_verification", methods=["POST"])
+@login_required
 def get_verification():
     """
     处理获取验证码的请求
@@ -350,6 +411,7 @@ def get_verification():
 
 
 @app.route("/fetch_accounts", methods=["GET"])
+@login_required
 def fetch_accounts():
     # 获取account文件夹中的所有JSON文件
     account_files = []
@@ -384,6 +446,7 @@ def fetch_accounts():
 
 
 @app.route("/update_account", methods=["POST"])
+@login_required
 def update_account():
     data = request.json
     if not data or "filename" not in data or "account_data" not in data:
@@ -408,6 +471,7 @@ def update_account():
 
 
 @app.route("/delete_account", methods=["POST"])
+@login_required
 def delete_account():
     filename = request.form.get("filename")
 
@@ -434,6 +498,7 @@ def delete_account():
 
 
 @app.route("/activate_account", methods=["POST"])
+@login_required
 def activate_account():
     try:
         data = request.json
@@ -527,6 +592,7 @@ def activate_account():
 
 
 @app.route("/check_email_inventory", methods=["GET"])
+@login_required
 def check_email_inventory():
     try:
         # 发送请求到库存API
@@ -553,6 +619,7 @@ def check_email_inventory():
 
 
 @app.route("/check_balance", methods=["GET"])
+@login_required
 def check_balance():
     try:
         # 从请求参数中获取卡号
@@ -586,6 +653,7 @@ def check_balance():
 
 
 @app.route("/extract_emails", methods=["GET"])
+@login_required
 def extract_emails():
     try:
         # 从请求参数中获取必需的参数
@@ -719,6 +787,54 @@ def extract_emails():
         return jsonify({"status": "error", "message": f"提取邮箱时出错: {str(e)}"})
 
 
+@app.route('/api/verify_code', methods=['POST'])
+@login_required
+def api_verify_code():
+    """
+    提供验证码获取API，用于其他实例调用
+    需要APP_PASSWORD认证才能访问
+    """
+    try:
+        # 获取请求数据
+        data = request.json
+        if not data:
+            return jsonify({"code": 400, "msg": "请求数据无效"})
+            
+        email_user = data.get('email')
+        email_password = data.get('password')
+        folder = data.get('folder', 'INBOX')
+        
+        if not email_user or not email_password:
+            return jsonify({"code": 400, "msg": "请提供邮箱和密码"})
+        
+        # 调用原始IMAP函数获取验证码
+        from utils.pk_email import connect_imap
+        import socket
+        
+        # 设置更短的超时时间
+        old_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(15)
+        
+        try:
+            # 直接调用连接函数，但跳过环境检测
+            result = connect_imap._original_implementation(email_user, email_password, folder)
+            return jsonify(result)
+        finally:
+            # 恢复原来的超时设置
+            socket.setdefaulttimeout(old_timeout)
+            
+    except Exception as e:
+        import traceback
+        return jsonify({"code": 500, "msg": f"服务器错误: {str(e)}", 
+                        "traceback": traceback.format_exc()})
+
+
 if __name__ == "__main__":
+    # 显示访问密码状态
+    if APP_PASSWORD:
+        print(f"[INFO] 已启用密码保护，访问系统需要输入密码")
+    else:
+        print("[INFO] 未设置密码，系统将允许直接访问")
+        
     webbrowser.open('http://localhost:5000/')
     app.run(debug=False, host="0.0.0.0", port=5000)

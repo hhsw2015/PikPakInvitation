@@ -20,6 +20,8 @@ EXPOSE 5000
 
 # 使用环境变量传递配置
 ENV FLASK_ENV=production
+# 可以通过设置 APP_PASSWORD 环境变量来启用访问密码保护
+# ENV APP_PASSWORD=your_password
 
 # 设置健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s \

@@ -83,6 +83,16 @@
               <i class="bi bi-envelope-fill"></i> 邮箱提取
             </a>
           </li>
+          {% if session.get('authenticated') %}
+          <li class="nav-item ms-auto">
+            <a
+              class="nav-link text-danger"
+              href="{{ url_for('logout') }}"
+            >
+              <i class="bi bi-box-arrow-right"></i> 退出登录
+            </a>
+          </li>
+          {% endif %}
         </ul>
 
         <!-- Registration Tab -->
