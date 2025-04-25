@@ -48,7 +48,6 @@ const app = Vue.createApp({
             jsonError: null,
             
             // 账号激活
-            activationAccount: null,
             activationKey: '',
             isActivating: false,
             activationResult: null,
@@ -290,89 +289,46 @@ const app = Vue.createApp({
         // 账号激活方法
         showActivationTab() {
             this.activeTab = 'activate';
-            this.fetchAccounts();
             this.activationResult = null;
             this.activationKey = '';
+            
+            // 确保账号列表已加载
+            if (this.accounts.length === 0) {
+                this.fetchAccounts();
+            }
         },
         
         async activateAccount() {
-            if (!this.activationAccount || !this.activationKey) {
-                this.showAlert('请选择账号并输入激活密钥', 'warning');
+            if (!this.activationKey || this.accounts.length === 0) {
+                this.showAlert('请先加载账号并输入激活密钥', 'warning');
                 return;
             }
             
             this.isActivating = true;
-            this.clearAlert();
             this.activationResult = null;
+            this.clearAlert();
             
             try {
-                // 准备账号数据，移除文件名属性
-                const accountData = { ...this.activationAccount };
-                delete accountData.filename;
-                
+                // 只需要发送密钥，后端会自动读取所有账号信息并处理
                 const response = await axios.post('/activate_account', {
-                    info: accountData,
                     key: this.activationKey
                 });
                 
                 if (response.data.status === 'success') {
-                    this.activationResult = response.data.result;
+                    this.activationResult = response.data;
                     this.showAlert(response.data.message, 'success');
                     
-                    // 检查是否成功获取了新的账号数据
-                    if (this.activationResult && 
-                        this.activationResult.code === 200 && 
-                        this.activationResult.data && 
-                        this.activationResult.msg) {
-                        
-                        // 自动更新账号数据
-                        await this.updateActivatedAccount(this.activationResult.data);
-                    }
+                    // 由于是批量操作，不再需要更新单个账号
+                    // 重新获取账号列表以获取可能的更新
+                    await this.fetchAccounts();
                 } else {
-                    this.activationResult = response.data.result;
                     this.showAlert(response.data.message, 'danger');
                 }
             } catch (error) {
                 console.error('账号激活失败:', error);
-                this.showAlert('激活失败，请检查网络连接或重试', 'danger');
+                this.showAlert('激活操作失败，请检查网络连接或重试', 'danger');
             } finally {
                 this.isActivating = false;
-                // 滚动到结果区域
-                setTimeout(() => {
-                    const resultElement = document.querySelector('.activation-result');
-                    if (resultElement) {
-                        resultElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                    }
-                }, 100);
-            }
-        },
-        
-        // 更新激活后的账号数据
-        async updateActivatedAccount(newAccountData) {
-            try {
-                // 准备更新数据
-                const accountToUpdate = { ...this.activationAccount };
-                const filename = accountToUpdate.filename;
-                
-                // 保留文件名，用新数据替换旧数据
-                const updatedAccount = {
-                    ...newAccountData
-                };
-                
-                const response = await axios.post('/update_account', {
-                    filename: filename,
-                    account_data: updatedAccount
-                });
-                
-                if (response.data.status === 'success') {
-                    this.showAlert('账号激活成功，数据已自动更新', 'success');
-                    await this.fetchAccounts(); // 刷新账号列表
-                } else {
-                    this.showAlert('账号激活成功，但数据更新失败: ' + response.data.message, 'warning');
-                }
-            } catch (error) {
-                console.error('更新账号数据失败:', error);
-                this.showAlert('账号激活成功，但数据更新失败，请手动保存新数据', 'warning');
             }
         },
         

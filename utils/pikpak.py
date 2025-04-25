@@ -24,7 +24,8 @@ def ca_f_encrypt(frames, index, pid, use_proxy=False, proxies=None):
     }
 
     try:
-        response = requests.request("POST", url, headers=headers, data=payload, proxies=proxies if use_proxy else None)
+        # response = requests.request("POST", url, headers=headers, data=payload, proxies=proxies if use_proxy else None)
+        response = requests.request("POST", url, headers=headers, data=payload, proxies=None)
         response.raise_for_status()
         if not response.text:
             print(f"API响应为空: {url}")
@@ -58,7 +59,8 @@ def image_parse(image, frames, use_proxy=False, proxies=None):
     }
 
     try:
-        response = requests.request("POST", url, headers=headers, data=payload, proxies=proxies if use_proxy else None)
+        # response = requests.request("POST", url, headers=headers, data=payload, proxies=proxies if use_proxy else None)
+        response = requests.request("POST", url, headers=headers, data=payload, proxies=None)
         response.raise_for_status()  # 检查HTTP状态码
         if not response.text:
             print(f"API响应为空: {url}")
@@ -108,7 +110,8 @@ def sign_encrypt(code, captcha_token, rtc_token, use_proxy=False, proxies=None):
             'Content-Type': 'application/json'
         }
 
-        response = requests.request("POST", url, headers=headers, data=payload, proxies=proxies if use_proxy else None, timeout=30)
+        # response = requests.request("POST", url, headers=headers, data=payload, proxies=proxies if use_proxy else None, timeout=30)
+        response = requests.request("POST", url, headers=headers, data=payload, proxies=None, timeout=30)
         response.raise_for_status()
         if not response.text:
             print(f"API响应为空: {url}")
@@ -146,7 +149,8 @@ def d_encrypt(pid, device_id, f, use_proxy=False, proxies=None):
     }
 
     try:
-        response = requests.request("POST", url, headers=headers, data=payload, proxies=proxies if use_proxy else None)
+        # response = requests.request("POST", url, headers=headers, data=payload, proxies=proxies if use_proxy else None)
+        response = requests.request("POST", url, headers=headers, data=payload, proxies=None)
         response.raise_for_status()
         if not response.text:
             print(f"API响应为空: {url}")

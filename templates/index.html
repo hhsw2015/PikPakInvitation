@@ -701,48 +701,29 @@
                   <div class="mb-4">
                     <div class="alert alert-info">
                       <i class="bi bi-info-circle-fill"></i>
-                      对被邀请的账号进行活跃操作，邀请完成后执行一次，次日十点前请再次操作一次<br />
+                      对所有账号进行批量活跃操作，邀请完成后执行一次，次日十点前请再次操作一次<br />
+                      <i class="bi bi-info-circle-fill"></i>
+                      请自行清理邀请超过5天以上的账号数据，避免无效活跃<br />
+                      <i class="bi bi-info-circle-fill"></i>
                       <strong>成功活跃后的新账号数据将自动保存。</strong>
                     </div>
                   </div>
 
-                  <!-- Account Selection -->
+                  <!-- Account Summary -->
                   <div class="mb-4">
-                    <label for="activationAccount" class="form-label"
-                      >选择账号</label
-                    >
-                    <select
-                      class="form-select"
-                      id="activationAccount"
-                      v-model="activationAccount"
-                      :disabled="isLoadingAccounts || isActivating"
-                    >
-                      <option value="" selected disabled>请选择一个账号</option>
-                      <option
-                        v-for="(account, index) in accounts"
-                        :key="index"
-                        :value="account"
-                      >
-                        {% raw %}{{ account.email || '未知邮箱' }} ({{
-                        account.name || '未知用户名' }}){% endraw %}
-                      </option>
-                    </select>
-                    <div class="mt-2" v-if="activationAccount">
-                      <div class="card bg-light">
-                        <div class="card-body">
-                          <p class="mb-2">
-                            <strong>邮箱:</strong> {% raw %}{{
-                            activationAccount.email || '未知' }}{% endraw %}
-                          </p>
-                          <p class="mb-2">
-                            <strong>用户名:</strong> {% raw %}{{
-                            activationAccount.name || '未知' }}{% endraw %}
-                          </p>
-                          <p class="mb-0">
-                            <strong>设备ID:</strong> {% raw %}{{
-                            activationAccount.device_id || '未知' }}{% endraw %}
-                          </p>
-                        </div>
+                    <div class="card bg-light">
+                      <div class="card-header">账号概览</div>
+                      <div class="card-body">
+                        <p class="mb-2">
+                          <strong>总账号数量:</strong> 
+                          <span class="badge bg-primary">{% raw %}{{ accounts.length || 0 }}{% endraw %} 个账号</span>
+                        </p>
+                        <p class="mb-0" v-if="accounts.length > 0">
+                          所有账号将被同时激活
+                        </p>
+                        <p class="mb-0 text-danger" v-else>
+                          未找到账号数据，请先注册账号
+                        </p>
                       </div>
                     </div>
                     <button
@@ -776,7 +757,7 @@
                     <button
                       @click="activateAccount"
                       class="btn btn-primary btn-lg"
-                      :disabled="!activationAccount || !activationKey || isActivating"
+                      :disabled="accounts.length === 0 || !activationKey || isActivating"
                     >
                       <span v-if="isActivating">
                         <span
@@ -784,10 +765,10 @@
                           role="status"
                           aria-hidden="true"
                         ></span>
-                        操作中...
+                        批量处理中...
                       </span>
                       <span v-else>
-                        <i class="bi bi-lightning-charge-fill"></i> 立即执行
+                        <i class="bi bi-lightning-charge-fill"></i> 批量激活所有账号
                       </span>
                     </button>
                   </div>
@@ -799,23 +780,37 @@
                         <h5 class="mb-0">
                           <i class="bi bi-check-circle-fill"></i> 执行结果
                           <span
-                            v-if="activationResult.code === 200"
                             class="badge bg-success float-end"
-                            >已自动更新账号数据</span
+                            >{% raw %}{{ activationResult.message }}{% endraw %}</span
                           >
                         </h5>
                       </div>
                       <div class="card-body">
-                        <div
-                          v-if="activationResult.code === 200"
-                          class="alert alert-success mb-3"
-                        >
-                          <i class="bi bi-info-circle-fill"></i>
-                          {% raw %}{{ activationResult.msg }}{% endraw %}
+                        <div class="table-responsive mb-3">
+                          <table class="table table-striped table-hover">
+                            <thead>
+                              <tr>
+                                <th>邮箱</th>
+                                <th>状态</th>
+                                <th>信息</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr v-for="(result, index) in activationResult.results" :key="index" 
+                                  :class="{'table-success': result.status === 'success', 'table-danger': result.status === 'error'}">
+                                <td>{% raw %}{{ result.account }}{% endraw %}</td>
+                                <td>
+                                  <span v-if="result.status === 'success'" class="badge bg-success">成功</span>
+                                  <span v-else class="badge bg-danger">失败</span>
+                                </td>
+                                <td>
+                                  <span v-if="result.status === 'success'">激活成功</span>
+                                  <span v-else>{% raw %}{{ result.message }}{% endraw %}</span>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
                         </div>
-                        <pre class="activation-result">
-{% raw %}{{ JSON.stringify(activationResult, null, 2) }}{% endraw %}</pre
-                        >
                       </div>
                     </div>
                   </div>

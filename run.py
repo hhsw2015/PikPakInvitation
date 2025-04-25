@@ -437,40 +437,90 @@ def delete_account():
 def activate_account():
     try:
         data = request.json
-        account_data = data.get("info")
         key = data.get("key")
 
-        if not account_data or not key:
-            return jsonify({"status": "error", "message": "账号数据或密钥不能为空"})
+        if not key:
+            return jsonify({"status": "error", "message": "密钥不能为空"})
 
-        # 发送请求到外部API
-        response = requests.post(
-            headers={
-                "Content-Type": "application/json",
-                "referer": "https://inject.kiteyuan.info/",
-                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0",
-            },
-            url="https://inject.kiteyuan.info/infoInject",
-            json={"info": account_data, "key": key},
-            timeout=30,
-        )
+        account_data = []
+        for file in os.listdir("account"):
+            if file.endswith(".json"):
+                file_path = os.path.join("account", file)
+                with open(file_path, "r", encoding="utf-8") as f:
+                    account_data.append(json.load(f))
 
-        if response.status_code == 200:
-            return jsonify(
-                {
-                    "status": "success",
-                    "message": "账号激活成功",
-                    "result": response.json(),
-                }
-            )
-        else:
-            return jsonify(
-                {
+        if not account_data:
+            return jsonify({"status": "error", "message": "未找到账号数据"})
+
+        # 使用多线程处理每个账号
+        import threading
+        import queue
+
+        # 创建结果队列
+        result_queue = queue.Queue()
+
+        # 定义线程处理函数
+        def process_account(single_account, account_key, result_q):
+            try:
+                response = requests.post(
+                    headers={
+                        "Content-Type": "application/json",
+                        "referer": "https://inject.kiteyuan.info/",
+                        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0",
+                    },
+                    url="https://inject.kiteyuan.info/infoInject",
+                    json={"info": single_account, "key": account_key},
+                    timeout=30,
+                )
+                
+                # 将结果放入队列
+                if response.status_code == 200:
+                    result_q.put({
+                        "status": "success",
+                        "account": single_account.get("email", "未知邮箱"),
+                        "result": response.json()
+                    })
+                else:
+                    result_q.put({
+                        "status": "error",
+                        "account": single_account.get("email", "未知邮箱"),
+                        "message": f"激活失败: HTTP {response.status_code}",
+                        "result": response.text
+                    })
+            except Exception as e:
+                result_q.put({
                     "status": "error",
-                    "message": f"激活失败: HTTP {response.status_code}",
-                    "result": response.text,
-                }
+                    "account": single_account.get("email", "未知邮箱"),
+                    "message": f"处理失败: {str(e)}"
+                })
+
+        # 创建并启动线程
+        threads = []
+        for account in account_data:
+            thread = threading.Thread(
+                target=process_account,
+                args=(account, key, result_queue)
             )
+            threads.append(thread)
+            thread.start()
+
+        # 等待所有线程完成
+        for thread in threads:
+            thread.join()
+
+        # 收集所有结果
+        results = []
+        while not result_queue.empty():
+            results.append(result_queue.get())
+
+        # 统计成功和失败的数量
+        success_count = sum(1 for r in results if r["status"] == "success")
+        
+        return jsonify({
+            "status": "success",
+            "message": f"账号激活完成: {success_count}/{len(account_data)}个成功",
+            "results": results
+        })
 
     except Exception as e:
         return jsonify({"status": "error", "message": f"操作失败: {str(e)}"})
