@@ -451,29 +451,29 @@ def fetch_accounts():
     )
 
 
-# @app.route("/update_account", methods=["POST"])
-# @login_required
-# def update_account():
-#     data = request.json
-#     if not data or "filename" not in data or "account_data" not in data:
-#         return jsonify({"status": "error", "message": "请求数据不完整"})
+@app.route("/update_account", methods=["POST"])
+@login_required
+def update_account():
+    data = request.json
+    if not data or "filename" not in data or "account_data" not in data:
+        return jsonify({"status": "error", "message": "请求数据不完整"})
 
-#     filename = data.get("filename")
-#     account_data = data.get("account_data")
+    filename = data.get("filename")
+    account_data = data.get("account_data")
 
-#     # 安全检查文件名
-#     if not filename or ".." in filename or not filename.endswith(".json"):
-#         return jsonify({"status": "error", "message": "无效的文件名"})
+    # 安全检查文件名
+    if not filename or ".." in filename or not filename.endswith(".json"):
+        return jsonify({"status": "error", "message": "无效的文件名"})
 
-#     file_path = os.path.join("account", filename)
+    file_path = os.path.join("account", filename)
 
-#     try:
-#         with open(file_path, "w", encoding="utf-8") as f:
-#             json.dump(account_data, f, indent=4, ensure_ascii=False)
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(account_data, f, indent=4, ensure_ascii=False)
 
-#         return jsonify({"status": "success", "message": "账号已成功更新"})
-#     except Exception as e:
-#         return jsonify({"status": "error", "message": f"更新账号时出错: {str(e)}"})
+        return jsonify({"status": "success", "message": "账号已成功更新"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"更新账号时出错: {str(e)}"})
 
 
 @app.route("/delete_account", methods=["POST"])
