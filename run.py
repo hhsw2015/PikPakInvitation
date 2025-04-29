@@ -30,7 +30,8 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 # 优先使用命令行参数中的密码，如果没有则使用环境变量
-APP_PASSWORD = args.password if args.password else os.environ.get('APP_PASSWORD', '')
+APP_PASSWORD = args.password if args.password else os.environ.get("APP_PASSWORD", "")
+
 
 def login_required(f):
     @functools.wraps(f)
@@ -38,55 +39,60 @@ def login_required(f):
         # 如果没有设置密码，直接允许访问
         if not APP_PASSWORD:
             return f(*args, **kwargs)
-        
+
         # 如果已经登录，允许访问
-        if session.get('authenticated'):
+        if session.get("authenticated"):
             return f(*args, **kwargs)
-            
+
         # 否则重定向到登录页面
-        return redirect(url_for('login'))
+        return redirect(url_for("login"))
+
     return decorated_function
 
-@app.route('/login', methods=['GET', 'POST'])
+
+@app.route("/login", methods=["GET", "POST"])
 def login():
     # 如果没有设置密码，重定向到主页
     if not APP_PASSWORD:
-        return redirect(url_for('index'))
-        
-    error = None
-    if request.method == 'POST':
-        if request.form.get('password') == APP_PASSWORD:
-            session['authenticated'] = True
-            return redirect(url_for('index'))
-        else:
-            error = '密码错误，请重试'
-            
-    return render_template('login.html', error=error)
+        return redirect(url_for("index"))
 
-@app.route('/logout')
+    error = None
+    if request.method == "POST":
+        if request.form.get("password") == APP_PASSWORD:
+            session["authenticated"] = True
+            return redirect(url_for("index"))
+        else:
+            error = "密码错误，请重试"
+
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout")
 def logout():
-    session.pop('authenticated', None)
-    return redirect(url_for('login'))
+    session.pop("authenticated", None)
+    return redirect(url_for("login"))
+
 
 @app.route("/")
 @login_required
 def index():
     return render_template("index.html")
 
-@app.route('/health')
+
+@app.route("/health")
 def health_check():
-    # 检查是否在HuggingFace环境中
-    in_huggingface = os.environ.get('SPACE_ID') is not None or os.environ.get('SYSTEM') == 'spaces'
     
-    return jsonify({
-        "status": "OK", 
-        "environment": {
-            "huggingface": in_huggingface,
-            "password_protected": bool(APP_PASSWORD),
-            "python_version": os.sys.version
+    in_huggingface = (
+        os.environ.get("SPACE_ID") is not None or os.environ.get("SYSTEM") == "spaces"
+    )
+
+    return jsonify(
+        {
+            "status": "OK",
         }
-    })
-    
+    )
+
+
 @app.route("/initialize", methods=["POST"])
 @login_required
 def initialize():
@@ -445,29 +451,29 @@ def fetch_accounts():
     )
 
 
-@app.route("/update_account", methods=["POST"])
-@login_required
-def update_account():
-    data = request.json
-    if not data or "filename" not in data or "account_data" not in data:
-        return jsonify({"status": "error", "message": "请求数据不完整"})
+# @app.route("/update_account", methods=["POST"])
+# @login_required
+# def update_account():
+#     data = request.json
+#     if not data or "filename" not in data or "account_data" not in data:
+#         return jsonify({"status": "error", "message": "请求数据不完整"})
 
-    filename = data.get("filename")
-    account_data = data.get("account_data")
+#     filename = data.get("filename")
+#     account_data = data.get("account_data")
 
-    # 安全检查文件名
-    if not filename or ".." in filename or not filename.endswith(".json"):
-        return jsonify({"status": "error", "message": "无效的文件名"})
+#     # 安全检查文件名
+#     if not filename or ".." in filename or not filename.endswith(".json"):
+#         return jsonify({"status": "error", "message": "无效的文件名"})
 
-    file_path = os.path.join("account", filename)
+#     file_path = os.path.join("account", filename)
 
-    try:
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(account_data, f, indent=4, ensure_ascii=False)
+#     try:
+#         with open(file_path, "w", encoding="utf-8") as f:
+#             json.dump(account_data, f, indent=4, ensure_ascii=False)
 
-        return jsonify({"status": "success", "message": "账号已成功更新"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"更新账号时出错: {str(e)}"})
+#         return jsonify({"status": "success", "message": "账号已成功更新"})
+#     except Exception as e:
+#         return jsonify({"status": "error", "message": f"更新账号时出错: {str(e)}"})
 
 
 @app.route("/delete_account", methods=["POST"])
@@ -507,14 +513,19 @@ def activate_account():
         if not key:
             return jsonify({"status": "error", "message": "密钥不能为空"})
 
-        account_data = []
+        # 存储账号数据及其文件路径
+        accounts_with_paths = []
         for file in os.listdir("account"):
             if file.endswith(".json"):
                 file_path = os.path.join("account", file)
                 with open(file_path, "r", encoding="utf-8") as f:
-                    account_data.append(json.load(f))
+                    account_data = json.load(f)
+                    # 保存文件路径以便后续更新
+                    accounts_with_paths.append(
+                        {"path": file_path, "data": account_data}
+                    )
 
-        if not account_data:
+        if not accounts_with_paths:
             return jsonify({"status": "error", "message": "未找到账号数据"})
 
         # 使用多线程处理每个账号
@@ -525,8 +536,11 @@ def activate_account():
         result_queue = queue.Queue()
 
         # 定义线程处理函数
-        def process_account(single_account, account_key, result_q):
+        def process_account(account_with_path, account_key, result_q):
             try:
+                file_path = account_with_path["path"]
+                single_account = account_with_path["data"]
+
                 response = requests.post(
                     headers={
                         "Content-Type": "application/json",
@@ -537,34 +551,82 @@ def activate_account():
                     json={"info": single_account, "key": account_key},
                     timeout=30,
                 )
-                
+
                 # 将结果放入队列
                 if response.status_code == 200:
-                    result_q.put({
-                        "status": "success",
-                        "account": single_account.get("email", "未知邮箱"),
-                        "result": response.json()
-                    })
+                    api_result = response.json()
+
+                    # 检查API是否返回了正确的数据格式
+                    if isinstance(api_result, dict) and api_result.get("code") == 200 and "data" in api_result:
+                        # 获取返回的数据对象
+                        account_data = api_result.get("data", {})
+                        
+                        if account_data and isinstance(account_data, dict):
+                            # 更新账号信息
+                            updated_account = single_account.copy()
+
+                            # 更新令牌信息 (从data子对象中提取)
+                            for key in ["access_token", "refresh_token", "captcha_token", "timestamp", "device_id", "user_id"]:
+                                if key in account_data:
+                                    updated_account[key] = account_data[key]
+
+                            # 保存更新后的账号数据
+                            with open(file_path, "w", encoding="utf-8") as f:
+                                json.dump(updated_account, f, indent=4, ensure_ascii=False)
+
+                            # 将更新后的数据放入结果队列
+                            result_q.put(
+                                {
+                                    "status": "success",
+                                    "account": single_account.get("email", "未知邮箱"),
+                                    "result": account_data,
+                                    "updated": True,
+                                }
+                            )
+                        else:
+                            # 返回的data不是字典类型
+                            result_q.put(
+                                {
+                                    "status": "error",
+                                    "account": single_account.get("email", "未知邮箱"),
+                                    "message": "返回的数据格式不符合预期",
+                                    "result": api_result,
+                                }
+                            )
+                    else:
+                        # API返回错误码或格式不符合预期
+                        error_msg = api_result.get("msg", "未知错误")
+                        result_q.put(
+                            {
+                                "status": "error",
+                                "account": single_account.get("email", "未知邮箱"),
+                                "message": f"激活失败: {error_msg}",
+                                "result": api_result,
+                            }
+                        )
                 else:
-                    result_q.put({
+                    result_q.put(
+                        {
+                            "status": "error",
+                            "account": single_account.get("email", "未知邮箱"),
+                            "message": f"激活失败: HTTP {response.status_code}-{response.json().get('detail', '未知错误')}",
+                            "result": response.text,
+                        }
+                    )
+            except Exception as e:
+                result_q.put(
+                    {
                         "status": "error",
                         "account": single_account.get("email", "未知邮箱"),
-                        "message": f"激活失败: HTTP {response.status_code}",
-                        "result": response.text
-                    })
-            except Exception as e:
-                result_q.put({
-                    "status": "error",
-                    "account": single_account.get("email", "未知邮箱"),
-                    "message": f"处理失败: {str(e)}"
-                })
+                        "message": f"处理失败: {str(e)}",
+                    }
+                )
 
         # 创建并启动线程
         threads = []
-        for account in account_data:
+        for account_with_path in accounts_with_paths:
             thread = threading.Thread(
-                target=process_account,
-                args=(account, key, result_queue)
+                target=process_account, args=(account_with_path, key, result_queue)
             )
             threads.append(thread)
             thread.start()
@@ -580,12 +642,19 @@ def activate_account():
 
         # 统计成功和失败的数量
         success_count = sum(1 for r in results if r["status"] == "success")
-        
-        return jsonify({
-            "status": "success",
-            "message": f"账号激活完成: {success_count}/{len(account_data)}个成功",
-            "results": results
-        })
+        updated_count = sum(
+            1
+            for r in results
+            if r.get("status") == "success" and r.get("updated", False)
+        )
+
+        return jsonify(
+            {
+                "status": "success",
+                "message": f"账号激活完成: {success_count}/{len(accounts_with_paths)}个成功, {updated_count}个已更新数据",
+                "results": results,
+            }
+        )
 
     except Exception as e:
         return jsonify({"status": "error", "message": f"操作失败: {str(e)}"})
@@ -691,11 +760,11 @@ def extract_emails():
         # 后端重试计数器
         retry_count = 0
         max_retries = 20  # 单次后端请求的最大重试次数
-        retry_delay = 0   # 每次重试间隔秒数
-        
+        retry_delay = 0  # 每次重试间隔秒数
+
         # 记录总的前端+后端重试次数，用于展示给用户
         total_retry_count = frontend_retry_count
-        
+
         while retry_count < max_retries:
             # 发送请求到邮箱提取API
             response = requests.get(
@@ -715,22 +784,24 @@ def extract_emails():
                         # 没有库存，需要重试
                         retry_count += 1
                         total_retry_count += 1
-                        
+
                         # 如果达到后端最大重试次数，返回特殊状态让前端继续重试
                         if retry_count >= max_retries:
-                            return jsonify({
-                                "status": "retry", 
-                                "message": f"暂无库存: {json_response['msg']}，已重试{total_retry_count}次，继续尝试中...",
-                                "retry_count": total_retry_count
-                            })
-                        
+                            return jsonify(
+                                {
+                                    "status": "retry",
+                                    "message": f"暂无库存: {json_response['msg']}，已重试{total_retry_count}次，继续尝试中...",
+                                    "retry_count": total_retry_count,
+                                }
+                            )
+
                         # 等待一段时间后重试
                         time.sleep(retry_delay)
                         continue
                 except ValueError:
                     # 不是JSON格式，可能是成功的文本列表响应
                     pass
-                
+
                 # 处理文本响应
                 response_text = response.text.strip()
 
@@ -745,25 +816,27 @@ def extract_emails():
                 if not emails:
                     retry_count += 1
                     total_retry_count += 1
-                    
+
                     if retry_count >= max_retries:
-                        return jsonify({
-                            "status": "retry", 
-                            "message": f"未能获取到邮箱，已重试{total_retry_count}次，继续尝试中...",
-                            "retry_count": total_retry_count
-                        })
-                    
+                        return jsonify(
+                            {
+                                "status": "retry",
+                                "message": f"未能获取到邮箱，已重试{total_retry_count}次，继续尝试中...",
+                                "retry_count": total_retry_count,
+                            }
+                        )
+
                     time.sleep(retry_delay)
                     continue
 
                 # 成功获取到邮箱，返回结果
                 return jsonify(
                     {
-                        "status": "success", 
-                        "emails": emails, 
-                        "count": len(emails), 
+                        "status": "success",
+                        "emails": emails,
+                        "count": len(emails),
                         "retries": total_retry_count,
-                        "message": f"成功获取{len(emails)}个邮箱，总共重试{total_retry_count}次"
+                        "message": f"成功获取{len(emails)}个邮箱，总共重试{total_retry_count}次",
                     }
                 )
             else:
@@ -777,56 +850,16 @@ def extract_emails():
                 )
 
         # 如果执行到这里，说明超过了最大重试次数
-        return jsonify({
-            "status": "retry",
-            "message": f"暂无邮箱库存，已重试{total_retry_count}次，继续尝试中...",
-            "retry_count": total_retry_count
-        })
+        return jsonify(
+            {
+                "status": "retry",
+                "message": f"暂无邮箱库存，已重试{total_retry_count}次，继续尝试中...",
+                "retry_count": total_retry_count,
+            }
+        )
 
     except Exception as e:
         return jsonify({"status": "error", "message": f"提取邮箱时出错: {str(e)}"})
-
-
-@app.route('/api/verify_code', methods=['POST'])
-@login_required
-def api_verify_code():
-    """
-    提供验证码获取API，用于其他实例调用
-    需要APP_PASSWORD认证才能访问
-    """
-    try:
-        # 获取请求数据
-        data = request.json
-        if not data:
-            return jsonify({"code": 400, "msg": "请求数据无效"})
-            
-        email_user = data.get('email')
-        email_password = data.get('password')
-        folder = data.get('folder', 'INBOX')
-        
-        if not email_user or not email_password:
-            return jsonify({"code": 400, "msg": "请提供邮箱和密码"})
-        
-        # 调用原始IMAP函数获取验证码
-        from utils.pk_email import connect_imap
-        import socket
-        
-        # 设置更短的超时时间
-        old_timeout = socket.getdefaulttimeout()
-        socket.setdefaulttimeout(15)
-        
-        try:
-            # 直接调用连接函数，但跳过环境检测
-            result = connect_imap._original_implementation(email_user, email_password, folder)
-            return jsonify(result)
-        finally:
-            # 恢复原来的超时设置
-            socket.setdefaulttimeout(old_timeout)
-            
-    except Exception as e:
-        import traceback
-        return jsonify({"code": 500, "msg": f"服务器错误: {str(e)}", 
-                        "traceback": traceback.format_exc()})
 
 
 if __name__ == "__main__":
@@ -835,6 +868,6 @@ if __name__ == "__main__":
         print(f"[INFO] 已启用密码保护，访问系统需要输入密码")
     else:
         print("[INFO] 未设置密码，系统将允许直接访问")
-        
-    webbrowser.open('http://localhost:5000/')
+
+    webbrowser.open("http://localhost:5000/")
     app.run(debug=False, host="0.0.0.0", port=5000)
