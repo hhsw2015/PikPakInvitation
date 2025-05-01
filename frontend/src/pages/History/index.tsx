@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Card, Button, message, Modal, Typography, Tag, Space, Popconfirm } from 'antd';
 import { ReloadOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons';
-import { fetchAccounts as apiFetchAccounts } from '../../services/api';
+import { fetchAccounts as apiFetchAccounts, deleteAccount } from '../../services/api';
 import './index.css';
 
 const { Text, Paragraph } = Typography;
@@ -38,7 +38,6 @@ const History: React.FC = () => {
           name: acc.name || acc.filename, // Use filename as name if name is missing
         }));
         setAccounts(fetchedAccounts);
-        message.success(response.data.message || `成功获取 ${fetchedAccounts.length} 个账号`);
       } else {
         message.error(response.data.message || '获取账号列表失败');
       }
@@ -55,22 +54,24 @@ const History: React.FC = () => {
 
   const handleDelete = async (filename: string) => {
     setLoading(true);
-    
     try {
-      // 这里添加调用删除账号API的代码
-      // const response = await fetch('/delete_account', { method: 'POST', body: ... });
-      // const data = await response.json();
-      
-      // 模拟删除操作
-      setTimeout(() => {
-        setAccounts(accounts.filter(acc => acc.filename !== filename));
-        setLoading(false);
-        message.success('账号已删除');
-      }, 500);
-      
-    } catch (error) {
+      // 调用删除账号API
+      const response = await deleteAccount(filename);
+
+      if (response.data && response.data.status === 'success') {
+        // 从状态中移除账号
+        setAccounts(prevAccounts => prevAccounts.filter(acc => acc.filename !== filename));
+        message.success(response.data.message || '账号已成功删除');
+      } else {
+        // 显示API返回的错误消息
+        message.error(response.data.message || '删除账号失败');
+      }
+    } catch (error: any) {
       console.error('删除账号错误:', error);
-      message.error('删除账号失败');
+      // 显示捕获到的错误消息
+      message.error(`删除账号出错: ${error.message || '未知错误'}`);
+    } finally {
+      // 确保 loading 状态在所有情况下都设置为 false
       setLoading(false);
     }
   };
@@ -102,6 +103,15 @@ const History: React.FC = () => {
         } else {
           return <Tag color="default">信息不完整</Tag>; // Indicate incomplete info
         }
+      },
+    },
+    {
+      title: '修改日期',
+      dataIndex: 'timestamp',
+      key: 'timestamp',
+      render: (timestamp: number) => {
+        // 这里需要类型转换
+        return (new Date(timestamp*1)).toLocaleString();
       },
     },
     {

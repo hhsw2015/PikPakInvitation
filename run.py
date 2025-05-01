@@ -2,8 +2,6 @@ import json
 import os
 import time
 import uuid
-import webbrowser
-import functools
 import argparse  # 导入参数解析库
 import random
 import string
@@ -448,9 +446,7 @@ def fetch_accounts():
         return jsonify(
             {"status": "info", "message": "没有找到保存的账号", "accounts": []}
         )
-
-    # 按文件名排序（通常包含日期时间）
-    account_files.sort(key=lambda x: x.get("filename", ""), reverse=True)
+    account_files.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
 
     return jsonify(
         {
@@ -510,30 +506,37 @@ def delete_account():
     except Exception as e:
         return jsonify({"status": "error", "message": f"删除账号时出错: {str(e)}"})
 
-
-@app.route("/activate_account", methods=["POST"])
-def activate_account():
+@app.route("/activate_account_with_names", methods=["POST"])
+def activate_account_with_names():
     try:
         data = request.json
         key = data.get("key")
+        names = data.get("names", [])  # 获取指定的账户名称列表
+        all_accounts = data.get("all", False)  # 获取是否处理所有账户的标志
 
         if not key:
             return jsonify({"status": "error", "message": "密钥不能为空"})
+            
+        if not all_accounts and (not names or not isinstance(names, list)):
+            return jsonify({"status": "error", "message": "请提供有效的账户名称列表或设置 all=true"})
 
         # 存储账号数据及其文件路径
         accounts_with_paths = []
         for file in os.listdir("account"):
             if file.endswith(".json"):
-                file_path = os.path.join("account", file)
-                with open(file_path, "r", encoding="utf-8") as f:
-                    account_data = json.load(f)
-                    # 保存文件路径以便后续更新
-                    accounts_with_paths.append(
-                        {"path": file_path, "data": account_data}
-                    )
+                # 如果 all=true 或者文件名在指定的names列表中，则处理该文件
+                file_name_without_ext = os.path.splitext(file)[0]
+                if all_accounts or file_name_without_ext in names or file in names:
+                    file_path = os.path.join("account", file)
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        account_data = json.load(f)
+                        # 保存文件路径以便后续更新
+                        accounts_with_paths.append(
+                            {"path": file_path, "data": account_data}
+                        )
 
         if not accounts_with_paths:
-            return jsonify({"status": "error", "message": "未找到账号数据"})
+            return jsonify({"status": "error", "message": "未找到指定的账号数据"})
 
         # 使用多线程处理每个账号
         import threading

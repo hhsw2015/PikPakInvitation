@@ -47,8 +47,8 @@ export const getEmailVerificationCode = async (data: any) => {
 };
 
 // 激活账号
-export const activateAccounts = async (key: string) => {
-  return api.post('/activate_account', { key });
+export const activateAccounts = async (key: string, names: string[], all: boolean=false) => {
+  return api.post('/activate_account_with_names', { key, names, all });
 };
 
 // 获取账号列表
@@ -60,7 +60,11 @@ export const fetchAccounts = async () => {
 export const deleteAccount = async (filename: string) => {
   const formData = new FormData();
   formData.append('filename', filename);
-  return api.post('/delete_account', formData);
+  return api.post('/delete_account', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
 };
 
 // 更新账号

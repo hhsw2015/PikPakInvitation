@@ -233,8 +233,6 @@ class EmailClient:
             password=password
         )
 
-        print("INBOX latest_email_data",latest_email_data.get('send'))
-
         if not latest_email_data or 'PikPak' not in latest_email_data.get('send'):
             logger.error(f"在 INBOX 获取邮箱 {email} 最新邮件失败，尝试从Junk获取")
             latest_email_data = self.get_latest_email(
@@ -252,8 +250,6 @@ class EmailClient:
         # 假设邮件正文在 'text' 或 'body' 字段
         email_content = latest_email_data.get('text') or latest_email_data.get('body')
 
-        print("email_content", email_content)
-        
         if not email_content:
             logger.warning(f"邮箱 {email} 的最新邮件数据中未找到 'text' 或 'body' 字段")
             return None
