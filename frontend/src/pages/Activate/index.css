@@ -1,13 +1,15 @@
 .activate-container {
   display: flex;
   justify-content: center;
-  padding: 24px;
   max-width: 800px;
   margin: 0 auto;
+  max-height: calc(100vh - 80px);
 }
 
 .activate-card {
   width: 100%;
+  height: calc(100vh - 80px);
+  overflow-y: scroll;
 }
 
 .key-input-container {

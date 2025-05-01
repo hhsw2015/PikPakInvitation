@@ -50,14 +50,13 @@ const MainLayout: React.FC = () => {
         </div>
         <Menu theme="dark" mode="inline" selectedKeys={[currentPath]} items={items} />
       </Sider>
-      <Content style={{ margin: '24px 16px 0', width: '100%' }}>
+      <Content style={{ margin: '0', width: '100%' }}>
         <div 
           className="site-layout-background" 
           style={{
             padding: 24, 
-            minHeight: 'calc(100vh - 48px)',
+            minHeight: '100vh',
             background: '#fff', 
-            borderRadius: '8px',
             boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24)'
           }}
         >

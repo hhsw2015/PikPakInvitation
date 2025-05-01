@@ -1,11 +1,15 @@
 .history-container {
-  padding: 24px;
   max-width: 1000px;
   margin: 0 auto;
 }
 
 .history-card {
   width: 100%;
+
+}
+
+.history-card .ant-card-body {
+  padding: 0;
 }
 
 .account-details {
@@ -14,11 +18,14 @@
 
 .token-container {
   max-width: 100%;
+  max-height: 60px;
   overflow-x: auto;
+  overflow-y: hidden;
   padding: 8px;
   background-color: #f5f5f5;
   border-radius: 4px;
   margin-top: 4px;
   word-break: break-all;
+  white-space: normal;
   font-family: monospace;
 } 

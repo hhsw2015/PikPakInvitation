@@ -4,16 +4,14 @@ import {
   Input,
   Button,
   Card,
-  Steps,
   message,
   Switch,
-  Divider,
   Row,
   Col,
   Tag,
   Spin,
-  Alert,
   Checkbox,
+  Progress,
 } from "antd";
 import { CheckboxChangeEvent } from "antd/es/checkbox";
 import "./index.css";
@@ -24,9 +22,14 @@ import {
   getEmailVerificationCode,
   register,
 } from "../../services/api";
-import { CheckCircleOutlined, CloseCircleOutlined } from "@ant-design/icons";
+import {
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  SyncOutlined,
+  SafetyCertificateOutlined,
+  MailOutlined,
+} from "@ant-design/icons";
 
-const { Step } = Steps;
 const { TextArea } = Input;
 
 // 定义账号信息接口
@@ -65,6 +68,11 @@ const Register: React.FC = () => {
   const [autoFetchLoading, setAutoFetchLoading] = useState(false); // 新增状态
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [saveInviteCode, setSaveInviteCode] = useState(false); // Added state for checkbox
+  
+  // 添加错误跟踪和重试状态
+  const [captchaError, setCaptchaError] = useState<string | null>(null);
+  const [emailVerificationError, setEmailVerificationError] = useState<string | null>(null);
+  const [registrationError, setRegistrationError] = useState<string | null>(null);
 
   // Load saved invite code on mount
   useEffect(() => {
@@ -80,32 +88,41 @@ const Register: React.FC = () => {
     }
   }, [form]); // Run once on mount, depends on form instance
 
-  // 定义账号信息接口
-  const moveToNextAccountOrComplete = () => {
-    const nextIndex = processingIndex + 1;
-    setProcessingIndex(nextIndex); // Increment index first
-    setCurrent(3); // Always go to the intermediate/final complete step
-
-    if (nextIndex >= accountList.length) {
-      setAllAccountsProcessed(true); // Mark all as processed
-      setLoading(false); // Stop global loading only when truly finished
-      message.success("所有账号均已处理完毕!");
-    } else {
-      setAllAccountsProcessed(false); // Ensure it's false if there are more accounts
-      setAccountList((prev) =>
-        prev.map((acc) =>
-          acc.id === nextIndex
-            ? { ...acc, status: "pending" }
-            : acc
-        )
-      );
-      handleStartNextAccount();
+  // 初始化重试的专门函数
+  const handleRetryInitialization = () => {
+    if (processingIndex >= 0 && processingIndex < accountList.length) {
+      handleInitializeCurrentAccount(processingIndex);
     }
   };
+  
+  // 更新移动到下一账号或完成的函数，重置错误状态
+  const moveToNextAccountOrComplete = () => {
+    // 重置所有错误状态
+    setCaptchaError(null);
+    setEmailVerificationError(null);
+    setRegistrationError(null);
+    
+    const nextIndex = processingIndex + 1;
+    if (nextIndex >= accountList.length) {
+      setAllAccountsProcessed(true);
+      setLoading(false);
+      message.success("所有账号均已处理完毕!");
+    } else {
+      setAllAccountsProcessed(false);
+      setAccountList((prev) =>
+        prev.map((acc) =>
+          acc.id === nextIndex ? { ...acc, status: "pending" } : acc
+        )
+      );
+      handleStartNextAccount(nextIndex);
+    }
+    setCurrent(3);
+  };
 
-  const handleStartNextAccount = () => {
-    if (processingIndex >= 0 && processingIndex < accountList.length) {
+  const handleStartNextAccount = (nextIndex: number) => {
+    if (nextIndex >= 0 && nextIndex < accountList.length) {
       // Reset states for the next account's steps
+      setProcessingIndex(nextIndex);
       setCurrent(0);
       setIsCaptchaVerified(false);
       setCaptchaLoading(false);
@@ -276,6 +293,8 @@ const Register: React.FC = () => {
 
     setCaptchaLoading(true);
     setIsCaptchaVerified(false);
+    setCaptchaError(null); // 重置验证码错误状态
+    
     try {
       console.log(`[${currentAccount.account}] 调用 verifyCaptha API...`);
       let formData = new FormData();
@@ -308,26 +327,52 @@ const Register: React.FC = () => {
           handleAutoFetchCode();
         }, 1000);
       } else {
-        message.error(
-          responseData.message || "验证失败，请确保已完成滑块验证后重试"
-        );
+        const errorMessage = responseData.message || "验证失败，请确保已完成滑块验证后重试";
+        message.error(errorMessage);
         setIsCaptchaVerified(false);
-        // Optionally move to next account on captcha failure?
-        // setAccountList(prev => prev.map(acc => acc.id === currentAccount.id ? { ...acc, status: 'error', message: `验证码失败: ${responseData.message || '未知'}` } : acc));
-        // moveToNextAccountOrComplete();
+        setCaptchaError(errorMessage); // 设置错误信息
+        
+        // 更新账号状态为错误，但保持在当前步骤
+        setAccountList((prev) =>
+          prev.map((acc) =>
+            acc.id === currentAccount.id
+              ? { 
+                  ...acc, 
+                  message: `滑块验证失败: ${errorMessage}` 
+                }
+              : acc
+          )
+        );
       }
     } catch (error: any) {
       // Added type annotation
       console.error(`[${currentAccount.account}] 验证码 API 调用失败:`, error);
-      message.error(`验证码验证出错: ${error.message}`);
+      const errorMessage = error.message || "未知错误";
+      message.error(`验证码验证出错: ${errorMessage}`);
       setIsCaptchaVerified(false);
-      // Optionally move to next account on captcha error?
-      // setAccountList(prev => prev.map(acc => acc.id === currentAccount.id ? { ...acc, status: 'error', message: `验证码错误: ${error.message}` } : acc));
-      // moveToNextAccountOrComplete();
+      setCaptchaError(errorMessage); // 设置错误信息
+      
+      // 更新账号状态为错误，但保持在当前步骤
+      setAccountList((prev) =>
+        prev.map((acc) =>
+          acc.id === currentAccount.id
+            ? { 
+                ...acc, 
+                message: `滑块验证出错: ${errorMessage}` 
+              }
+            : acc
+        )
+      );
     } finally {
       setCaptchaLoading(false);
       setCurrent(2);
     }
+  };
+
+  // 添加滑块验证重试功能
+  const handleRetryCaptcha = () => {
+    setCaptchaError(null);
+    handleCaptchaVerification();
   };
 
   const handleEmailVerification = async () => {
@@ -341,6 +386,7 @@ const Register: React.FC = () => {
     }
 
     setEmailVerifyLoading(true);
+    setRegistrationError(null); // 重置注册错误状态
     setAccountList((prev) =>
       prev.map((acc) =>
         acc.id === currentAccount.id
@@ -390,27 +436,33 @@ const Register: React.FC = () => {
         setLoading(false);
       } else {
         // 失败情况 (后端返回非成功状态)
-        throw new Error(responseData.message || "注册返回失败状态");
+        const errorMessage = responseData.message || "注册返回失败状态";
+        throw new Error(errorMessage);
       }
       // --- 结束替换 ---
     } catch (error: any) {
       console.error(`[${currentAccount.account}] 注册失败:`, error);
       const errorMessage = error.message || "未知错误";
       message.error(`注册失败: ${errorMessage}`);
-      // 更新状态和消息
+      setRegistrationError(errorMessage); // 设置注册错误状态
+      
+      // 更新状态和消息，但不移动到下一个账号
       setAccountList((prev) =>
         prev.map((acc) =>
           acc.id === currentAccount.id
-            ? { ...acc, status: "error", message: `注册失败: ${errorMessage}` }
+            ? { ...acc, message: `注册失败: ${errorMessage}` }
             : acc
         )
       );
-      // 移动到下一步或完成
-      moveToNextAccountOrComplete();
-      setLoading(false);
     } finally {
       setEmailVerifyLoading(false);
     }
+  };
+
+  // 添加注册重试功能
+  const handleRetryRegistration = () => {
+    setRegistrationError(null);
+    handleEmailVerification();
   };
 
   const getCurrentAccount = () => {
@@ -456,6 +508,7 @@ const Register: React.FC = () => {
   useEffect(() => {
     if (
       accountList.length > 0 &&
+      processingIndex < accountList.length &&
       accountList[processingIndex].status === "pending"
     ) {
       console.log("useEffect triggering initialization for index 0");
@@ -469,6 +522,8 @@ const Register: React.FC = () => {
     const currentAccount = getCurrentAccount();
     setAutoFetchLoading(true);
     setErrorMsg(null); // 清除之前的错误信息
+    setEmailVerificationError(null); // 重置验证码获取错误状态
+    
     try {
       const formData = new FormData();
       formData.append("email", currentAccount?.account || "");
@@ -490,19 +545,53 @@ const Register: React.FC = () => {
         }, 1000);
       } else {
         // 显示后端返回的更具体的错误信息
-        message.error(
-          result.msg || "未能获取验证码，请检查邮箱和密码或手动输入"
-        );
-        // 可以在这里设置错误状态供UI显示
-        // setErrorMsg(result.msg || '未能获取验证码...');
+        const errorMessage = result.msg || "未能获取验证码，请检查邮箱和密码或手动输入";
+        message.error(errorMessage);
+        setEmailVerificationError(errorMessage); // 设置错误信息
+        
+        // 更新账号状态显示错误
+        if (currentAccount) {
+          setAccountList((prev) =>
+            prev.map((acc) =>
+              acc.id === currentAccount.id
+                ? { 
+                    ...acc, 
+                    message: `获取验证码失败: ${errorMessage}` 
+                  }
+                : acc
+            )
+          );
+        }
       }
     } catch (error: any) {
-      message.error(`获取验证码时出错: ${error.message}`);
-      setErrorMsg(`获取验证码时出错: ${error.message}`);
+      const errorMessage = error.message || "未知错误";
+      message.error(`获取验证码时出错: ${errorMessage}`);
+      setErrorMsg(`获取验证码时出错: ${errorMessage}`);
+      setEmailVerificationError(errorMessage); // 设置错误信息
       console.error("Auto fetch code error:", error);
+      
+      // 更新账号状态显示错误
+      if (currentAccount) {
+        setAccountList((prev) =>
+          prev.map((acc) =>
+            acc.id === currentAccount.id
+              ? { 
+                  ...acc, 
+                  message: `获取验证码出错: ${errorMessage}` 
+                }
+              : acc
+          )
+        );
+      }
     } finally {
       setAutoFetchLoading(false);
     }
+  };
+
+  // 添加获取验证码重试功能
+  const handleRetryEmailVerification = () => {
+    setEmailVerificationError(null);
+    handleAutoFetchCode();
   };
 
   const handleSaveInviteCodeChange = (e: CheckboxChangeEvent) => {
@@ -543,9 +632,627 @@ const Register: React.FC = () => {
   const steps = [
     {
       title: "初始化",
-      content: (
+      content: (() => {
+        const currentAccount = getCurrentAccount();
+        const status = currentAccount?.status || "pending";
+
+        // 根据状态决定不同的初始化步骤样式
+        if (status === "pending") {
+          return (
+            <div
+              className="step-content-container"
+              style={{ textAlign: "center", padding: "12px" }}
+            >
+              <div
+                style={{
+                  fontSize: "42px",
+                  color: "#8c8c8c",
+                  marginBottom: "10px",
+                }}
+              >
+                <SafetyCertificateOutlined />
+              </div>
+              <h3
+                style={{
+                  marginBottom: "10px",
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                }}
+              >
+                等待初始化
+              </h3>
+              <p style={{ color: "#666", marginBottom: "10px" }}>
+                系统准备就绪，正在等待开始初始化流程
+              </p>
+              <Progress percent={0} status="normal" />
+            </div>
+          );
+        } else if (status === "initializing") {
+          return (
+            <div
+              className="step-content-container"
+              style={{ textAlign: "center", padding: "12px" }}
+            >
+              <div
+                style={{
+                  fontSize: "42px",
+                  color: "#1890ff",
+                  marginBottom: "10px",
+                }}
+              >
+                <SyncOutlined spin />
+              </div>
+              <h3
+                style={{
+                  marginBottom: "10px",
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                }}
+              >
+                正在初始化
+              </h3>
+              <p style={{ color: "#666", marginBottom: "10px" }}>
+                系统正在准备您的注册环境，请稍候...
+              </p>
+              <Progress percent={25} status="active" />
+            </div>
+          );
+        } else if (status === "error") {
+          return (
+            <div
+              className="step-content-container"
+              style={{ textAlign: "center", padding: "12px" }}
+            >
+              <div
+                style={{
+                  fontSize: "42px",
+                  color: "#ff4d4f",
+                  marginBottom: "10px",
+                }}
+              >
+                <CloseCircleOutlined />
+              </div>
+              <h3
+                style={{
+                  marginBottom: "10px",
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                }}
+              >
+                初始化失败
+              </h3>
+              <p style={{ color: "#666", marginBottom: "10px" }}>
+                {currentAccount?.message ||
+                  "初始化过程中遇到错误，请检查网络或代理设置"}
+              </p>
+              <Progress percent={25} status="exception" />
+              <div style={{ marginTop: "8px" }}>
+                <Button
+                  type="primary"
+                  danger
+                  onClick={handleRetryInitialization}
+                  style={{ marginRight: "8px" }}
+                >
+                  重试初始化
+                </Button>
+                <Button
+                  onClick={moveToNextAccountOrComplete}
+                >
+                  跳过此账号
+                </Button>
+              </div>
+            </div>
+          );
+        } else {
+          // 其他状态表示已初始化完成
+          return (
+            <div
+              className="step-content-container"
+              style={{ textAlign: "center", padding: "12px" }}
+            >
+              <div
+                style={{
+                  fontSize: "42px",
+                  color: "#52c41a",
+                  marginBottom: "10px",
+                }}
+              >
+                <CheckCircleOutlined />
+              </div>
+              <h3
+                style={{
+                  marginBottom: "10px",
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                }}
+              >
+                初始化完成
+              </h3>
+              <p style={{ color: "#666", marginBottom: "10px" }}>
+                环境准备就绪，可以继续下一步操作
+              </p>
+              <Progress percent={100} status="success" />
+            </div>
+          );
+        }
+      })(),
+    },
+    {
+      title: "滑块验证",
+      content: (() => {
+        // 滑块验证步骤的UI
+        if (captchaLoading) {
+          return (
+            <div
+              className="step-content-container"
+              style={{ textAlign: "center", padding: "12px" }}
+            >
+              <div
+                style={{
+                  fontSize: "42px",
+                  color: "#1890ff",
+                  marginBottom: "10px",
+                }}
+              >
+                <SyncOutlined spin />
+              </div>
+              <h3
+                style={{
+                  marginBottom: "10px",
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                }}
+              >
+                正在进行滑块验证
+              </h3>
+              <p style={{ color: "#666", marginBottom: "10px" }}>
+                系统正在自动完成滑块验证，请稍候...
+              </p>
+              <Progress percent={50} status="active" />
+            </div>
+          );
+        } else if (isCaptchaVerified) {
+          return (
+            <div
+              className="step-content-container"
+              style={{ textAlign: "center", padding: "12px" }}
+            >
+              <div
+                style={{
+                  fontSize: "42px",
+                  color: "#52c41a",
+                  marginBottom: "10px",
+                }}
+              >
+                <CheckCircleOutlined />
+              </div>
+              <h3
+                style={{
+                  marginBottom: "10px",
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                }}
+              >
+                滑块验证成功
+              </h3>
+              <p style={{ color: "#666", marginBottom: "10px" }}>
+                成功完成滑块验证，验证码已发送至邮箱
+              </p>
+              <Progress percent={100} status="success" />
+            </div>
+          );
+        } else if (captchaError) {
+          // 滑块验证失败时显示错误和重试按钮
+          return (
+            <div
+              className="step-content-container"
+              style={{ textAlign: "center", padding: "12px" }}
+            >
+              <div
+                style={{
+                  fontSize: "42px",
+                  color: "#ff4d4f",
+                  marginBottom: "10px",
+                }}
+              >
+                <CloseCircleOutlined />
+              </div>
+              <h3
+                style={{
+                  marginBottom: "10px",
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                }}
+              >
+                滑块验证失败
+              </h3>
+              <p style={{ color: "#666", marginBottom: "10px" }}>
+                {captchaError}
+              </p>
+              <Progress percent={50} status="exception" />
+              <div style={{ marginTop: "8px" }}>
+                <Button
+                  type="primary"
+                  danger
+                  onClick={handleRetryCaptcha}
+                  style={{ marginRight: "8px" }}
+                >
+                  重试滑块验证
+                </Button>
+                <Button
+                  onClick={moveToNextAccountOrComplete}
+                >
+                  跳过此账号
+                </Button>
+              </div>
+            </div>
+          );
+        } else {
+          return (
+            <div
+              className="step-content-container"
+              style={{ textAlign: "center", padding: "12px" }}
+            >
+              <div
+                style={{
+                  fontSize: "42px",
+                  color: "#8c8c8c",
+                  marginBottom: "10px",
+                }}
+              >
+                <SyncOutlined />
+              </div>
+              <h3
+                style={{
+                  marginBottom: "10px",
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                }}
+              >
+                等待滑块验证
+              </h3>
+              <p style={{ color: "#666", marginBottom: "10px" }}>
+                点击下方的"开始验证"按钮进行滑块验证
+              </p>
+              <Progress percent={40} status="normal" />
+            </div>
+          );
+        }
+      })(),
+    },
+    {
+      title: "邮箱验证",
+      content: (() => {
+        const currentAccount = getCurrentAccount();
+        
+        // 根据不同状态显示不同内容
+        if (emailVerifyLoading) {
+          return (
+            <div
+              className="step-content-container"
+              style={{ textAlign: "center", padding: "12px" }}
+            >
+              <div
+                style={{
+                  fontSize: "42px",
+                  color: "#1890ff",
+                  marginBottom: "10px",
+                }}
+              >
+                <SyncOutlined spin />
+              </div>
+              <h3
+                style={{
+                  marginBottom: "10px",
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                }}
+              >
+                正在验证
+              </h3>
+              <p style={{ color: "#666", marginBottom: "10px" }}>
+                正在验证您的邮箱验证码，请稍候...
+              </p>
+              <Progress percent={75} status="active" />
+            </div>
+          );
+        } else if (registrationError) {
+          // 注册失败时显示
+          return (
+            <div
+              className="step-content-container"
+              style={{ textAlign: "center", padding: "12px" }}
+            >
+              <div
+                style={{
+                  fontSize: "42px",
+                  color: "#ff4d4f",
+                  marginBottom: "10px",
+                }}
+              >
+                <CloseCircleOutlined />
+              </div>
+              <h3
+                style={{
+                  marginBottom: "10px",
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                }}
+              >
+                注册失败
+              </h3>
+              <p style={{ color: "#666", marginBottom: "10px" }}>
+                {registrationError}
+              </p>
+              <Form.Item
+                name="verification_code"
+                style={{ maxWidth: "300px", margin: "0 auto 10px" }}
+              >
+                <Input placeholder="输入邮箱验证码" />
+              </Form.Item>
+              <div style={{ marginTop: "8px" }}>
+                <Button
+                  type="primary"
+                  danger
+                  onClick={handleRetryRegistration}
+                  style={{ marginRight: "8px" }}
+                >
+                  重试注册
+                </Button>
+                <Button
+                  onClick={moveToNextAccountOrComplete}
+                >
+                  跳过此账号
+                </Button>
+              </div>
+            </div>
+          );
+        } else if (emailVerificationError) {
+          // 获取验证码失败时显示
+          return (
+            <div
+              className="step-content-container"
+              style={{ textAlign: "center", padding: "12px" }}
+            >
+              <div
+                style={{
+                  fontSize: "42px",
+                  color: "#ff4d4f",
+                  marginBottom: "10px",
+                }}
+              >
+                <CloseCircleOutlined />
+              </div>
+              <h3
+                style={{
+                  marginBottom: "10px",
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                }}
+              >
+                获取验证码失败
+              </h3>
+              <p style={{ color: "#666", marginBottom: "10px" }}>
+                {emailVerificationError}
+              </p>
+              <div style={{ marginTop: "8px" }}>
+                <Button
+                  type="primary"
+                  danger
+                  onClick={handleRetryEmailVerification}
+                  style={{ marginRight: "8px" }}
+                >
+                  重试获取验证码
+                </Button>
+                <Button
+                  onClick={moveToNextAccountOrComplete}
+                >
+                  跳过此账号
+                </Button>
+              </div>
+            </div>
+          );
+        } else {
+          // 默认显示内容
+          return (
+            <div
+              className="step-content-container"
+              style={{ textAlign: "center", padding: "12px" }}
+            >
+              <div
+                style={{
+                  fontSize: "42px",
+                  color: "#1890ff",
+                  marginBottom: "10px",
+                }}
+              >
+                <MailOutlined />
+              </div>
+              <h3
+                style={{
+                  marginBottom: "10px",
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                }}
+              >
+                邮箱验证
+              </h3>
+              <p style={{ color: "#666", marginBottom: "10px" }}>
+                {currentAccount ? `验证码已发送至 ${currentAccount.account}` : "验证码已发送至邮箱"}
+              </p>
+              <Form.Item
+                label="验证码"
+                name="verification_code"
+                style={{ maxWidth: "300px", margin: "0 auto 10px" }}
+              >
+                <Input placeholder="输入邮箱验证码" />
+              </Form.Item>
+              <Button
+                type="default"
+                onClick={handleAutoFetchCode}
+                loading={autoFetchLoading}
+                style={{ marginRight: "8px" }}
+              >
+                自动获取验证码
+              </Button>
+              <Progress percent={60} status="active" style={{ marginTop: "10px" }} />
+            </div>
+          );
+        }
+      })(),
+    },
+    {
+      title: "结果",
+      content: (() => {
+        if (allAccountsProcessed) {
+          return (
+            <div
+              className="step-content-container"
+              style={{ textAlign: "center", padding: "12px" }}
+            >
+              <div
+                style={{
+                  fontSize: "42px",
+                  color: "#52c41a",
+                  marginBottom: "10px",
+                }}
+              >
+                <CheckCircleOutlined />
+              </div>
+              <h3
+                style={{
+                  marginBottom: "10px",
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                }}
+              >
+                所有账号处理完成！
+              </h3>
+              <p style={{ color: "#666", marginBottom: "10px" }}>
+                所有账号已处理完毕，可以在右侧查看处理结果
+              </p>
+              <Progress percent={100} status="success" />
+            </div>
+          );
+        } else {
+          return (
+            <div
+              className="step-content-container"
+              style={{ textAlign: "center", padding: "12px" }}
+            >
+              <div
+                style={{
+                  fontSize: "42px",
+                  color: "#8c8c8c",
+                  marginBottom: "10px",
+                }}
+              >
+                <SyncOutlined />
+              </div>
+              <h3
+                style={{
+                  marginBottom: "10px",
+                  fontSize: "18px",
+                  fontWeight: "bold",
+                }}
+              >
+                等待完成注册
+              </h3>
+              <p style={{ color: "#666", marginBottom: "10px" }}>
+                等待完成前面的步骤
+              </p>
+              <Progress percent={0} status="normal" />
+            </div>
+          );
+        }
+      })(),
+    },
+  ];
+
+  const next = () => {
+    if (current < steps.length - 1) {
+      setCurrent(current + 1);
+    }
+  };
+
+  const handleMainButtonClick = async () => {
+    if (current === 0) {
+      await startProcessing();
+    } else if (current === 1) {
+      // 滑块验证页面
+      if (captchaError) {
+        // 如果有错误，重试滑块验证
+        handleRetryCaptcha();
+      } else if (isCaptchaVerified) {
+        next(); // 验证已通过，移至下一步
+      } else {
+        // 未开始验证，显示警告
+        console.log("请先完成滑块验证！");
+        message.warning("请先完成滑块验证！");
+      }
+    } else if (current === 2) {
+      // 邮箱验证页面
+      if (registrationError) {
+        // 注册失败，重试注册
+        handleRetryRegistration();
+      } else if (emailVerificationError) {
+        // 获取验证码失败，重试获取
+        handleRetryEmailVerification();
+      } else {
+        // 正常验证
+        await handleEmailVerification();
+      }
+    } else if (current === 3) {
+      // 结果页面
+      handleStartNextAccount(processingIndex + 1);
+    }
+  };
+
+  let mainButtonText = "开始处理";
+  let mainButtonLoading = loading;
+  let mainButtonDisabled = false;
+
+  if (current === 0) {
+    mainButtonText = "开始处理";
+    mainButtonDisabled = loading || processingIndex !== -1; // Disable if already processing
+  } else if (current === 1) {
+    // 滑块验证页面
+    if (captchaError) {
+      mainButtonText = "重试滑块验证";
+      mainButtonLoading = captchaLoading;
+    } else if (isCaptchaVerified) {
+      mainButtonText = "下一步";
+      mainButtonDisabled = false;
+    } else {
+      mainButtonText = "开始验证";
+      mainButtonLoading = captchaLoading;
+    }
+  } else if (current === 2) {
+    // 邮箱验证页面
+    if (registrationError) {
+      mainButtonText = "重试注册";
+      mainButtonLoading = emailVerifyLoading;
+    } else if (emailVerificationError) {
+      mainButtonText = "重试获取验证码";
+      mainButtonLoading = autoFetchLoading;
+    } else {
+      mainButtonText = "验证邮箱";
+      mainButtonLoading = emailVerifyLoading;
+      mainButtonDisabled = form.getFieldValue("verification_code") === "";
+    }
+  } else if (current === 3) {
+    if (processingIndex === accountList.length - 1) {
+      mainButtonText = "完成";
+    } else {
+      mainButtonText = "开始下一个账号";
+    }
+  }
+
+  return (
+    <div className="register-container">
+      <Card title="PikPak 账号注册" variant="borderless" className="register-card">
         <Row gutter={24}>
-          <Col xs={24} md={12}>
+          <Col xs={24} md={24}>
             {" "}
             {/* 左侧表单 */}
             <Form
@@ -651,332 +1358,10 @@ const Register: React.FC = () => {
               )}
             </Form>
           </Col>
-          <Col xs={24} md={12}>
-            {" "}
-            {/* 右侧状态/说明 */}
-            <Card
-              title={`处理状态 ${
-                processingIndex >= 0
-                  ? `(账号 ${processingIndex + 1} / ${accountList.length})`
-                  : ""
-              }`}
-              style={{ height: "100%" }}
-            >
-              {processingIndex === -1 && accountList.length === 0 && (
-                <div>
-                  <p>请在左侧输入账号信息，每行一条，格式如下:</p>
-                  <pre>
-                    <code>账号----密码----clientId----授权令牌</code>
-                  </pre>
-                  <p>例如:</p>
-                  <pre>
-                    <code>
-                      user@example.com----password123----client_abc----token_xyz
-                    </code>
-                  </pre>
-                  <p>输入完成后，点击"开始处理"开始处理。</p>
-                </div>
-              )}
-              {(processingIndex !== -1 || accountList.length > 0) && (
-                <div style={{ maxHeight: "400px", overflowY: "auto" }}>
-                  {accountList.map((acc, index) => (
-                    <div
-                      key={acc.id}
-                      style={{
-                        marginBottom: "10px",
-                        padding: "8px",
-                        border:
-                          index === processingIndex
-                            ? "2px solid #1890ff"
-                            : "1px solid #eee",
-                        borderRadius: "4px",
-                        background:
-                          index === processingIndex ? "#e6f7ff" : "transparent",
-                        opacity:
-                          acc.status === "success" || acc.status === "error"
-                            ? 0.7
-                            : 1,
-                      }}
-                    >
-                      <Spin
-                        spinning={
-                          acc.status === "processing" ||
-                          acc.status === "initializing"
-                        }
-                        size="small"
-                        style={{ marginRight: "8px" }}
-                      >
-                        <strong>账号:</strong> {acc.account}
-                      </Spin>
-                      <div style={{ marginTop: "5px" }}>
-                        <strong>状态:</strong>{" "}
-                        {acc.status === "pending" && <Tag>待处理</Tag>}
-                        {acc.status === "processing" && (
-                          <Tag color="blue">处理中...</Tag>
-                        )}
-                        {acc.status === "initializing" && (
-                          <Tag color="processing">初始化中...</Tag>
-                        )}
-                        {acc.status === "captcha_pending" && (
-                          <Tag color="warning">待验证码</Tag>
-                        )}
-                        {acc.status === "email_pending" && (
-                          <Tag color="warning">待邮箱验证</Tag>
-                        )}
-                        {acc.status === "success" && (
-                          <Tag color="success">成功</Tag>
-                        )}
-                        {acc.status === "error" && (
-                          <Tag color="error">失败</Tag>
-                        )}
-                      </div>
-                      {acc.message && (
-                        <div
-                          style={{
-                            marginTop: "5px",
-                            fontSize: "12px",
-                            color: acc.status === "error" ? "red" : "grey",
-                          }}
-                        >
-                          信息: {acc.message}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Card>
-          </Col>
-        </Row>
-      ),
-    },
-    {
-      title: "验证码",
-      content: (
-        <div style={{ textAlign: "center", padding: "20px" }}>
-          <p style={{ marginBottom: "20px" }}>
-            请为账号 <Tag>{getCurrentAccount()?.account || "N/A"}</Tag>{" "}
-            完成滑块验证。
-          </p>
-          <Button
-            type="primary"
-            onClick={handleCaptchaVerification}
-            loading={captchaLoading}
-            disabled={isCaptchaVerified || captchaLoading}
-          >
-            {isCaptchaVerified ? "验证已完成" : "开始滑块验证"}
-          </Button>
-          {isCaptchaVerified && (
-            <div
-              style={{
-                marginTop: "15px",
-                color: "#52c41a",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <CheckCircleOutlined style={{ marginRight: "8px" }} />
-              验证成功, 请点击"下一步"转到邮箱验证
-            </div>
-          )}
-        </div>
-      ),
-    },
-    {
-      title: "邮箱验证",
-      content: (
-        <Form form={form} layout="vertical">
-          <p>
-            请输入为账号 <Tag>{getCurrentAccount()?.account || "N/A"}</Tag>{" "}
-            收到的邮箱验证码。
-          </p>
-          {/* 可以选择显示错误信息 */}
-          {errorMsg && (
-            <Alert
-              message={errorMsg}
-              type="error"
-              showIcon
-              style={{ marginBottom: 16 }}
-            />
-          )}
-          <Form.Item
-            label="验证码"
-            name="verification_code"
-            rules={[{ required: true, message: "请输入验证码" }]}
-          >
-            <Input
-              placeholder="请输入收到的验证码"
-              disabled={emailVerifyLoading}
-            />
-          </Form.Item>
-          <Divider />
-          {/* 修改按钮 */}
-          <Button
-            type="dashed"
-            onClick={handleAutoFetchCode}
-            loading={autoFetchLoading}
-            disabled={autoFetchLoading}
-          >
-            自动获取验证码
-          </Button>
-        </Form>
-      ),
-    },
-    {
-      title: "完成",
-      content: (
-        <div>
-          {processingIndex > 0 && accountList[processingIndex - 1] && (
-            // Display result of the *last* processed account
-            <Card size="small" style={{ marginBottom: "20px" }}>
-              <p>
-                账号 <strong>{accountList[processingIndex - 1].account}</strong>{" "}
-                处理结果:
-              </p>
-              <div>
-                <strong>状态:</strong>{" "}
-                {accountList[processingIndex - 1].status === "success" && (
-                  <Tag color="success">成功</Tag>
-                )}
-                {accountList[processingIndex - 1].status === "error" && (
-                  <Tag color="error">失败</Tag>
-                )}
-                {/* Add other statuses if needed */}
-              </div>
-              {accountList[processingIndex - 1].message && (
-                <div
-                  style={{
-                    marginTop: "5px",
-                    fontSize: "12px",
-                    color:
-                      accountList[processingIndex - 1].status === "error"
-                        ? "red"
-                        : "grey",
-                  }}
-                >
-                  信息: {accountList[processingIndex - 1].message}
-                </div>
-              )}
-            </Card>
-          )}
-
-          {!allAccountsProcessed ? (
-            <>
-              <p>剩余待处理账号数量: {accountList.length - processingIndex}</p>
-              <Button
-                type="primary"
-                onClick={handleStartNextAccount}
-                disabled={loading}
-                loading={loading}
-              >
-                开始处理下一个账号 ({processingIndex + 1} / {accountList.length}
-                )
-              </Button>
-            </>
-          ) : (
-            <p>所有账号均已处理完毕。</p>
-          )}
-
-          <Divider />
-          <Button
-            onClick={() => {
-              setCurrent(0);
-              setAccountList([]);
-              setProcessingIndex(-1);
-              setAllAccountsProcessed(false);
-              form.resetFields();
-              setLoading(false);
-            }}
-          >
-            清空并开始新批次
-          </Button>
-        </div>
-      ),
-    },
-  ];
-
-  const next = () => {
-    if (current < steps.length - 1) {
-      setCurrent(current + 1);
-    }
-  };
-
-  const prev = () => {
-    if (current > 0) {
-      setCurrent(current - 1);
-      if (current === 2) setIsCaptchaVerified(false);
-    }
-  };
-
-  const handleMainButtonClick = async () => {
-    if (current === 0) {
-      await startProcessing();
-    } else if (current === 1) {
-      if (isCaptchaVerified) {
-        next(); // Move to current=2 (Email Verification step)
-      } else {
-        console.log("请先完成滑块验证！");
-        message.warning("请先完成滑块验证！");
-      }
-    } else if (current === 2) {
-      // Trigger email verification, which on completion will move to step 3
-      await handleEmailVerification();
-    }
-  };
-
-  let mainButtonText = "开始处理";
-  let mainButtonLoading = loading;
-  let mainButtonDisabled = false;
-
-  if (current === 0) {
-    mainButtonText = "开始处理";
-    mainButtonDisabled = loading || processingIndex !== -1; // Disable if already processing
-  } else if (current === 1) {
-    mainButtonText = "下一步 (邮箱验证)"; // Clarify destination
-    mainButtonLoading = captchaLoading;
-    mainButtonDisabled = !isCaptchaVerified || captchaLoading; // Removed global loading check
-  } else if (current === 2) {
-    mainButtonText = "验证邮箱"; // Changed text
-    mainButtonLoading = emailVerifyLoading;
-    mainButtonDisabled = form.getFieldValue("verification_code") === "";
-  } else if (current === 3) {
-    // No main button needed here anymore, handled within step content
-    mainButtonText = "完成"; // Placeholder, button will be hidden
-    mainButtonDisabled = true;
-  }
-
-  return (
-    <div className="register-container">
-      <Card title="PikPak 账号注册" bordered={false} className="register-card">
-        <Steps current={current}>
-          {steps.map((item) => (
-            <Step
-              key={item.title}
-              title={item.title}
-              status={
-                current === 3 && allAccountsProcessed && item.title === "完成"
-                  ? "finish"
-                  : undefined
-              }
-            />
-          ))}
-        </Steps>
-        <div className="steps-content" key={`${processingIndex}-${current}`}>
-          {steps[current].content}
-        </div>{" "}
+        </Row>{" "}
         {/* Add current to key */}
         <div className="steps-action">
-          {current > 0 && current < 3 && !loading && (
-            <Button
-              style={{ margin: "0 8px" }}
-              onClick={() => prev()}
-              disabled={captchaLoading || emailVerifyLoading}
-            >
-              上一步
-            </Button>
-          )}
-          {current < 3 && (
+          {current <= 3 && (
             <Button
               type="primary"
               onClick={handleMainButtonClick}
@@ -988,6 +1373,157 @@ const Register: React.FC = () => {
           )}
         </div>
       </Card>
+      <div className="register-right">
+        {/* 右侧状态/说明 */}
+        <Row gutter={24}>
+          <Card
+            className="register-card"
+            title={`处理状态 ${
+              processingIndex >= 0
+                ? `(账号 ${processingIndex + 1} / ${accountList.length})`
+                : ""
+            }`}
+          >
+            {processingIndex === -1 && accountList.length === 0 && (
+              <div>
+                <p>请在左侧输入账号信息，每行一条，格式如下:</p>
+                <pre>
+                  <code>账号----密码----clientId----授权令牌</code>
+                </pre>
+                <p>例如:</p>
+                <pre>
+                  <code>
+                    user@example.com----password123----client_abc----token_xyz
+                  </code>
+                </pre>
+                <p>输入完成后，点击"开始处理"开始处理。</p>
+              </div>
+            )}
+            {(processingIndex !== -1 || accountList.length > 0) && (
+              <div style={{ maxHeight: "calc(50vh - 127px)", overflowY: "auto" }}>
+                {accountList.map((acc, index) => (
+                  <div
+                    key={acc.id}
+                    style={{
+                      marginBottom: "10px",
+                      padding: "8px",
+                      border:
+                        index === processingIndex
+                          ? "2px solid #1890ff"
+                          : "1px solid #eee",
+                      borderRadius: "4px",
+                      background:
+                        index === processingIndex ? "#e6f7ff" : "transparent",
+                      opacity:
+                        acc.status === "success" || acc.status === "error"
+                          ? 0.7
+                          : 1,
+                    }}
+                  >
+                    <Spin
+                      spinning={
+                        acc.status === "processing" ||
+                        acc.status === "initializing"
+                      }
+                      size="small"
+                      style={{ marginRight: "8px" }}
+                    >
+                      <strong>账号:</strong> {acc.account}
+                    </Spin>
+                    <div style={{ marginTop: "5px" }}>
+                      <strong>状态:</strong>{" "}
+                      {acc.status === "pending" && <Tag>待处理</Tag>}
+                      {acc.status === "processing" && (
+                        <Tag color="processing">处理中</Tag>
+                      )}
+                      {acc.status === "initializing" && (
+                        <Tag color="processing">初始化中</Tag>
+                      )}
+                      {acc.status === "captcha_pending" && (
+                        <Tag color="warning">等待验证码</Tag>
+                      )}
+                      {acc.status === "email_pending" && (
+                        <Tag color="warning">等待邮箱验证</Tag>
+                      )}
+                      {acc.status === "success" && (
+                        <Tag color="success">注册成功</Tag>
+                      )}
+                      {acc.status === "error" && (
+                        <Tag color="error">失败</Tag>
+                      )}
+                    </div>
+                    {acc.message && (
+                      <div style={{ marginTop: "5px", fontSize: "12px" }}>
+                        <strong>消息:</strong>{" "}
+                        <span style={{ 
+                          color: acc.message && (acc.message.includes("失败") || acc.message.includes("错误"))
+                            ? "#ff4d4f" 
+                            : acc.message && acc.message.includes("成功") 
+                              ? "#52c41a" 
+                              : "#666" 
+                        }}>
+                          {acc.message}
+                        </span>
+                        {acc.message && (acc.message.includes("失败") || acc.message.includes("错误")) && (
+                          <span>
+                            <Button 
+                              size="small" 
+                              type="text" 
+                              danger
+                              style={{ marginLeft: "4px" }}
+                              onClick={() => {
+                                // 根据消息类型确定重试哪个步骤
+                                if (index === processingIndex) {
+                                  if (acc.message && acc.message.includes("初始化失败")) {
+                                    handleRetryInitialization();
+                                  } else if (acc.message && acc.message.includes("滑块验证")) {
+                                    handleRetryCaptcha();
+                                  } else if (acc.message && acc.message.includes("获取验证码")) {
+                                    handleRetryEmailVerification();
+                                  } else if (acc.message && acc.message.includes("注册失败")) {
+                                    handleRetryRegistration();
+                                  }
+                                } else {
+                                  // 如果不是当前处理的账号，先切换到它
+                                  setProcessingIndex(index);
+                                  message.info(`已切换到账号 ${acc.account}`);
+                                }
+                              }}
+                            >
+                              重试
+                            </Button>
+                            <Button
+                              size="small"
+                              type="text"
+                              style={{ marginLeft: "4px" }}
+                              onClick={() => {
+                                if (index === processingIndex) {
+                                  // 如果是当前处理的账号，直接跳过
+                                  moveToNextAccountOrComplete();
+                                } else {
+                                  // 如果不是当前处理的账号，提示不能跳过
+                                  message.info(`只能跳过当前正在处理的账号`);
+                                }
+                              }}
+                            >
+                              跳过
+                            </Button>
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </Row>
+        <Row gutter={24}>
+          <Card title={steps[current].title} className="register-card">
+            {steps[current].content}
+          </Card>
+        </Row>
+      </div>
     </div>
   );
 };
