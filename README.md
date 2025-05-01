@@ -29,7 +29,17 @@ pnpm build
 
 ### 后端部署
 
-#### 1. 源码运行
+#### 1. 环境变量
+复制 .env.example 到 .env
+
+这里 MAIL_POINT_API_URL 使用：https://github.com/HChaoHui/msOauth2api 部署后获得
+
+```bash
+# 变量名
+MAIL_POINT_API_URL=https://your-endpoint.com
+```
+
+#### 2. 源码运行
 
 ```bash
 # 安装依赖
@@ -38,3 +48,11 @@ pip install -r requirements.txt
 # 运行应用
 python run.py
 ```
+
+鸣谢：
+
+[Pikpak-Auto-Invitation](https://github.com/Bear-biscuit/Pikpak-Auto-Invitation)
+
+[纸鸢地址发布页](https://kiteyuan.info/)
+
+[msOauth2api](https://github.com/HChaoHui/msOauth2api)
