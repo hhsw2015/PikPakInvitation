@@ -1,0 +1,75 @@
+.register-container {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 50px;
+  min-height: calc(100vh - 100px);
+  background-color: #f0f2f5;
+}
+
+.register-card {
+  width: 100%;
+  max-width: 1000px;
+}
+
+.register-card .ant-card-body > .steps-content {
+  margin-top: 24px;
+}
+
+.steps-action {
+  margin-top: 24px;
+  text-align: right;
+}
+
+#captcha-container {
+  margin: 24px 0;
+  min-height: 150px;
+  border: 1px solid #eee;
+  padding: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.right-panel-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.right-panel-list-item {
+  margin-bottom: 10px;
+  padding: 8px;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  transition: background-color 0.3s ease;
+}
+
+.right-panel-list-item.processing {
+  background-color: #e6f7ff;
+}
+
+.right-panel-list-item-status {
+  margin-top: 5px;
+}
+
+.right-panel-list-item-message {
+  margin-top: 5px;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.right-panel-list-item-message.error {
+  color: #ff4d4f;
+}
+
+.right-panel-list-item-message.success {
+  color: #52c41a;
+}
+
+pre {
+  background-color: #fafafa;
+  padding: 10px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-all;
+} 

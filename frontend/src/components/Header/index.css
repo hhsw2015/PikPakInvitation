@@ -1,0 +1,32 @@
+/* Comment out or remove old container style 
+.header-container {
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  background-color: #001529;
+  color: white;
+  height: 64px;
+}
+*/
+
+/* Add new style for Layout.Header */
+.header-layout {
+  display: flex;        /* Use flexbox for alignment */
+  align-items: center;  /* Vertically center items */
+  padding: 0 30px;      /* Adjust horizontal padding */
+}
+
+.logo {
+  font-size: 20px;
+  font-weight: bold;
+  margin-right: 30px; /* Adjust margin for spacing */
+}
+
+.logo a {
+  /* color: white; Remove this, Layout.Header theme handles it */
+  text-decoration: none;
+}
+
+.header-menu {
+  flex: 1; /* Keep this to fill remaining space */
+} 

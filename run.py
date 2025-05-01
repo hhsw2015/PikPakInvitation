@@ -5,9 +5,13 @@ import uuid
 import webbrowser
 import functools
 import argparse  # 导入参数解析库
+import random
+import string
 
 import requests
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask_cors import CORS
+
 
 # 导入 pikpak.py 中的函数
 from utils.pk_email import connect_imap
@@ -21,60 +25,22 @@ from utils.pikpak import (
     test_proxy,
 )
 
+# 导入 email_client
+from utils.email_client import EmailClient
+
 # 解析命令行参数
 parser = argparse.ArgumentParser(description="PikPak 自动邀请注册系统")
-parser.add_argument("--password", help="设置访问密码")
 args = parser.parse_args()
 
 app = Flask(__name__)
+# cors
+CORS(app, resources={r"/*": {"origins": "*"}})
 app.secret_key = os.urandom(24)
 
-# 优先使用命令行参数中的密码，如果没有则使用环境变量
-APP_PASSWORD = args.password if args.password else os.environ.get("APP_PASSWORD", "")
-
-
-def login_required(f):
-    @functools.wraps(f)
-    def decorated_function(*args, **kwargs):
-        # 如果没有设置密码，直接允许访问
-        if not APP_PASSWORD:
-            return f(*args, **kwargs)
-
-        # 如果已经登录，允许访问
-        if session.get("authenticated"):
-            return f(*args, **kwargs)
-
-        # 否则重定向到登录页面
-        return redirect(url_for("login"))
-
-    return decorated_function
-
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    # 如果没有设置密码，重定向到主页
-    if not APP_PASSWORD:
-        return redirect(url_for("index"))
-
-    error = None
-    if request.method == "POST":
-        if request.form.get("password") == APP_PASSWORD:
-            session["authenticated"] = True
-            return redirect(url_for("index"))
-        else:
-            error = "密码错误，请重试"
-
-    return render_template("login.html", error=error)
-
-
-@app.route("/logout")
-def logout():
-    session.pop("authenticated", None)
-    return redirect(url_for("login"))
-
+# 全局字典用于存储用户处理过程中的数据，以 email 为键
+user_process_data = {}
 
 @app.route("/")
-@login_required
 def index():
     return render_template("index.html")
 
@@ -94,7 +60,6 @@ def health_check():
 
 
 @app.route("/initialize", methods=["POST"])
-@login_required
 def initialize():
     # 获取用户表单输入
     use_proxy = request.form.get("use_proxy") == "true"
@@ -113,17 +78,17 @@ def initialize():
     rtc_token = random_rtc_token()
 
     # 将这些参数存储到会话中以便后续使用
-    session["use_proxy"] = use_proxy
-    session["proxy_url"] = proxy_url
-    session["invite_code"] = invite_code
-    session["email"] = email
-    session["version"] = version
-    session["algorithms"] = algorithms
-    session["client_id"] = client_id
-    session["client_secret"] = client_secret
-    session["package_name"] = package_name
-    session["device_id"] = device_id
-    session["rtc_token"] = rtc_token
+    # session["use_proxy"] = use_proxy
+    # session["proxy_url"] = proxy_url
+    # session["invite_code"] = invite_code
+    # session["email"] = email
+    # session["version"] = version
+    # session["algorithms"] = algorithms
+    # session["client_id"] = client_id
+    # session["client_secret"] = client_secret
+    # session["package_name"] = package_name
+    # session["device_id"] = device_id
+    # session["rtc_token"] = rtc_token
 
     # 如果启用代理，则测试代理
     proxy_status = None
@@ -157,13 +122,31 @@ def initialize():
             {"status": "error", "message": "初始化失败，请检查网络连接或代理设置"}
         )
 
-    # 将验证码令牌保存到会话中
-    session["captcha_token"] = pikpak.captcha_token
+    # 将用户数据存储在全局字典中
+    user_data = {
+        "use_proxy": use_proxy,
+        "proxy_url": proxy_url,
+        "invite_code": invite_code,
+        "email": email,
+        "version": version,
+        "algorithms": algorithms,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "package_name": package_name,
+        "device_id": device_id,
+        "rtc_token": rtc_token,
+        "captcha_token": pikpak.captcha_token, # Store captcha_token here
+    }
+    user_process_data[email] = user_data
+
+    # 将验证码令牌保存到会话中 - REMOVED
+    # session["captcha_token"] = pikpak.captcha_token
 
     return jsonify(
         {
             "status": "success",
             "message": "初始化成功，请进行滑块验证",
+            "email": email, # Return email to client
             "proxy_status": proxy_status,
             "version": version,
             "device_id": device_id,
@@ -173,25 +156,41 @@ def initialize():
 
 
 @app.route("/verify_captcha", methods=["POST"])
-@login_required
 def verify_captcha():
-    # 从会话中获取存储的数据
-    device_id = session.get("device_id")
-    email = session.get("email")
-    invite_code = session.get("invite_code")
-    client_id = session.get("client_id")
-    version = session.get("version")
-    algorithms = session.get("algorithms")
-    rtc_token = session.get("rtc_token")
-    client_secret = session.get("client_secret")
-    package_name = session.get("package_name")
-    use_proxy = session.get("use_proxy")
-    proxy_url = session.get("proxy_url")
+    # 尝试从表单或JSON获取email
+    email = request.form.get('email')
+    if not email and request.is_json:
+        data = request.get_json()
+        email = data.get('email')
 
-    if not device_id or not email:
-        return jsonify({"status": "error", "message": "会话已过期，请重新初始化"})
+    if not email:
+        return jsonify({"status": "error", "message": "请求中未提供Email"})
 
-    # 创建PikPak实例
+    # 从全局字典获取用户数据
+    user_data = user_process_data.get(email)
+    if not user_data:
+        return jsonify({"status": "error", "message": "会话数据不存在或已过期，请重新初始化"})
+
+    # 从 user_data 中获取存储的数据
+    device_id = user_data.get("device_id")
+    # email = user_data.get("email") # Email is now the key, already have it
+    invite_code = user_data.get("invite_code")
+    client_id = user_data.get("client_id")
+    version = user_data.get("version")
+    algorithms = user_data.get("algorithms")
+    rtc_token = user_data.get("rtc_token")
+    client_secret = user_data.get("client_secret")
+    package_name = user_data.get("package_name")
+    use_proxy = user_data.get("use_proxy")
+    proxy_url = user_data.get("proxy_url")
+    captcha_token = user_data.get("captcha_token", "") # Use get with default
+
+    # Check if essential data is present (device_id is checked as example)
+    if not device_id:
+        return jsonify({"status": "error", "message": "必要的会话数据丢失，请重新初始化"})
+
+
+    # 创建PikPak实例 (使用从 user_data 获取的数据)
     pikpak = PikPak(
         invite_code,
         client_id,
@@ -207,8 +206,8 @@ def verify_captcha():
         proxy_https=proxy_url,
     )
 
-    # 从会话中设置验证码令牌
-    pikpak.captcha_token = session.get("captcha_token", "")
+    # 从 user_data 设置验证码令牌
+    pikpak.captcha_token = captcha_token
 
     # 尝试验证码验证
     max_attempts = 5
@@ -271,9 +270,9 @@ def verify_captcha():
         ):
             return jsonify({"status": "error", "message": "请求验证码失败"})
 
-        # 将更新的数据保存到会话中
-        session["captcha_token"] = pikpak.captcha_token
-        session["verification_id"] = pikpak.verification_id
+        # 将更新的数据保存到 user_data 中
+        user_data["captcha_token"] = pikpak.captcha_token
+        user_data["verification_id"] = pikpak.verification_id
 
         return jsonify({"status": "success", "message": "验证码已发送到邮箱，请查收"})
 
@@ -289,32 +288,46 @@ def verify_captcha():
             }
         )
 
+def gen_password():
+    # 生成12位密码
+    return "".join(random.choices(string.ascii_letters + string.digits, k=12))
 
 @app.route("/register", methods=["POST"])
-@login_required
 def register():
-    # 从表单获取验证码
+    # 从表单获取验证码和email
     verification_code = request.form.get("verification_code")
+    email = request.form.get('email') # Get email from form
+
+    if not email:
+        return jsonify({"status": "error", "message": "请求中未提供Email"})
 
     if not verification_code:
         return jsonify({"status": "error", "message": "验证码不能为空"})
 
-    # 从会话中获取存储的数据
-    device_id = session.get("device_id")
-    email = session.get("email")
-    invite_code = session.get("invite_code")
-    client_id = session.get("client_id")
-    version = session.get("version")
-    algorithms = session.get("algorithms")
-    rtc_token = session.get("rtc_token")
-    client_secret = session.get("client_secret")
-    package_name = session.get("package_name")
-    use_proxy = session.get("use_proxy")
-    proxy_url = session.get("proxy_url")
-    verification_id = session.get("verification_id")
+    # 从全局字典获取用户数据
+    user_data = user_process_data.get(email)
+    if not user_data:
+        return jsonify({"status": "error", "message": "会话数据不存在或已过期，请重新初始化"})
 
-    if not device_id or not email or not verification_id:
-        return jsonify({"status": "error", "message": "会话已过期，请重新初始化"})
+
+    # 从 user_data 中获取存储的数据
+    device_id = user_data.get("device_id")
+    # email = user_data.get("email") # Already have email
+    invite_code = user_data.get("invite_code")
+    client_id = user_data.get("client_id")
+    version = user_data.get("version")
+    algorithms = user_data.get("algorithms")
+    rtc_token = user_data.get("rtc_token")
+    client_secret = user_data.get("client_secret")
+    package_name = user_data.get("package_name")
+    use_proxy = user_data.get("use_proxy")
+    proxy_url = user_data.get("proxy_url")
+    verification_id = user_data.get("verification_id")
+    captcha_token = user_data.get("captcha_token", "")
+
+    # Check if essential data is present
+    if not device_id or not verification_id:
+        return jsonify({"status": "error", "message": "必要的会话数据丢失，请重新初始化"})
 
     # 创建PikPak实例
     pikpak = PikPak(
@@ -332,8 +345,8 @@ def register():
         proxy_https=proxy_url,
     )
 
-    # 从会话中设置验证码令牌和验证ID
-    pikpak.captcha_token = session.get("captcha_token", "")
+    # 从 user_data 中设置验证码令牌和验证ID
+    pikpak.captcha_token = captcha_token
     pikpak.verification_id = verification_id
 
     # 验证验证码
@@ -344,7 +357,7 @@ def register():
 
     # 注册并登录
     name = email.split("@")[0]
-    password = "zhiyuan233"  # 默认密码
+    password = gen_password()  # 默认密码
     signup_result = pikpak.signup(name, password, verification_code)
 
     # 填写邀请码
@@ -384,7 +397,6 @@ def register():
 
 
 @app.route("/test_proxy", methods=["POST"])
-@login_required
 def test_proxy_route():
     proxy_url = request.form.get("proxy_url", "http://127.0.0.1:7890")
     result = test_proxy(proxy_url)
@@ -398,7 +410,6 @@ def test_proxy_route():
 
 
 @app.route("/get_verification", methods=["POST"])
-@login_required
 def get_verification():
     """
     处理获取验证码的请求
@@ -417,7 +428,6 @@ def get_verification():
 
 
 @app.route("/fetch_accounts", methods=["GET"])
-@login_required
 def fetch_accounts():
     # 获取account文件夹中的所有JSON文件
     account_files = []
@@ -452,7 +462,6 @@ def fetch_accounts():
 
 
 @app.route("/update_account", methods=["POST"])
-@login_required
 def update_account():
     data = request.json
     if not data or "filename" not in data or "account_data" not in data:
@@ -477,7 +486,6 @@ def update_account():
 
 
 @app.route("/delete_account", methods=["POST"])
-@login_required
 def delete_account():
     filename = request.form.get("filename")
 
@@ -504,7 +512,6 @@ def delete_account():
 
 
 @app.route("/activate_account", methods=["POST"])
-@login_required
 def activate_account():
     try:
         data = request.json
@@ -661,7 +668,6 @@ def activate_account():
 
 
 @app.route("/check_email_inventory", methods=["GET"])
-@login_required
 def check_email_inventory():
     try:
         # 发送请求到库存API
@@ -688,7 +694,6 @@ def check_email_inventory():
 
 
 @app.route("/check_balance", methods=["GET"])
-@login_required
 def check_balance():
     try:
         # 从请求参数中获取卡号
@@ -722,7 +727,6 @@ def check_balance():
 
 
 @app.route("/extract_emails", methods=["GET"])
-@login_required
 def extract_emails():
     try:
         # 从请求参数中获取必需的参数
@@ -862,12 +866,60 @@ def extract_emails():
         return jsonify({"status": "error", "message": f"提取邮箱时出错: {str(e)}"})
 
 
-if __name__ == "__main__":
-    # 显示访问密码状态
-    if APP_PASSWORD:
-        print(f"[INFO] 已启用密码保护，访问系统需要输入密码")
+# --- 新增API：通过EmailClient获取验证码 ---
+@app.route('/get_email_verification_code', methods=['POST'])
+def get_email_verification_code_api():
+    """
+    通过 EmailClient (通常是基于HTTP API的邮件服务) 获取验证码。
+    接收 JSON 或 Form data。
+    必需参数: email, token, client_id
+    可选参数: password, api_base_url, mailbox, code_regex
+    """
+    if request.is_json:
+        data = request.get_json()
     else:
-        print("[INFO] 未设置密码，系统将允许直接访问")
+        data = request.form
 
-    webbrowser.open("http://localhost:5000/")
+    email = data.get('email')
+    token = data.get('token') # 对应 EmailClient 的 refresh_token
+    client_id = data.get('client_id')
+
+    if not all([email, token, client_id]):
+        return jsonify({"status": "error", "message": "缺少必需参数: email, token, client_id"}), 400
+
+    # 获取可选参数
+    password = data.get('password')
+    api_base_url = data.get('api_base_url') # 如果提供，将覆盖 EmailClient 的默认设置
+    mailbox = data.get('mailbox', "INBOX")
+    code_regex = data.get('code_regex', r'\b\d{6}\b') # 默认匹配6位数字
+
+    try:
+        # 实例化 EmailClient
+        email_client = EmailClient(api_base_url=api_base_url)
+
+        # 调用获取验证码的方法
+        verification_code = email_client.get_verification_code(
+            token=token,
+            client_id=client_id,
+            email=email,
+            password=password,
+            mailbox=mailbox,
+            code_regex=code_regex
+        )
+
+        if verification_code:
+            return jsonify({"status": "success", "verification_code": verification_code})
+        else:
+            # EmailClient 内部已记录详细错误，这里返回通用未找到消息
+            return jsonify({"status": "not_found", "message": "未能找到验证码或获取邮件失败"})
+
+    except Exception as e:
+        # 捕获实例化或调用过程中的其他潜在错误
+        app.logger.error(f"处理 /api/get_email_verification_code 时出错: {str(e)}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        return jsonify({"status": "error", "message": f"处理请求时发生内部错误"}), 500
+
+
+if __name__ == "__main__":
     app.run(debug=False, host="0.0.0.0", port=5000)

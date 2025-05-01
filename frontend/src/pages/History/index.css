@@ -1,0 +1,24 @@
+.history-container {
+  padding: 24px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.history-card {
+  width: 100%;
+}
+
+.account-details {
+  margin-top: 16px;
+}
+
+.token-container {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 8px;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+  margin-top: 4px;
+  word-break: break-all;
+  font-family: monospace;
+} 
