@@ -66,7 +66,6 @@ const Register: React.FC = () => {
   const [emailVerifyLoading, setEmailVerifyLoading] = useState(false); // Loading state for email verification step
   const [allAccountsProcessed, setAllAccountsProcessed] = useState(false); // Checklist item 1: Add state
   const [autoFetchLoading, setAutoFetchLoading] = useState(false); // 新增状态
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [saveInviteCode, setSaveInviteCode] = useState(false); // Added state for checkbox
   
   // 添加错误跟踪和重试状态
@@ -521,7 +520,6 @@ const Register: React.FC = () => {
   const handleAutoFetchCode = async () => {
     const currentAccount = getCurrentAccount();
     setAutoFetchLoading(true);
-    setErrorMsg(null); // 清除之前的错误信息
     setEmailVerificationError(null); // 重置验证码获取错误状态
     
     try {
@@ -566,7 +564,6 @@ const Register: React.FC = () => {
     } catch (error: any) {
       const errorMessage = error.message || "未知错误";
       message.error(`获取验证码时出错: ${errorMessage}`);
-      setErrorMsg(`获取验证码时出错: ${errorMessage}`);
       setEmailVerificationError(errorMessage); // 设置错误信息
       console.error("Auto fetch code error:", error);
       

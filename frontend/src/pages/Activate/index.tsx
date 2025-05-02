@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Input, Button, Typography, Tag, message, Result, Checkbox, Spin, Row, Col, Table, Space } from 'antd';
+import { Card, Input, Button, Typography, Tag, message, Result, Spin, Row, Col, Table, Space } from 'antd';
 import './index.css';
 import { activateAccounts, fetchAccounts } from '../../services/api';
 import type { ColumnsType } from 'antd/es/table';
 
-const { Title, Paragraph } = Typography;
+const { Paragraph } = Typography;
 
 interface AccountResult {
   status: 'success' | 'error';

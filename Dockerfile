@@ -31,6 +31,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Create accounts directory
 RUN mkdir accounts
 
+# Create Flask required directories
+RUN mkdir -p templates static
+
 # Copy specific backend code
 COPY run.py ./
 COPY utils/ ./utils/
@@ -38,9 +41,12 @@ COPY utils/ ./utils/
 # COPY backend/ ./backend/
 # WORKDIR /app/backend
 
-# Copy built frontend assets from builder stage
-# Assuming the Python app serves static files from a 'static' directory
-COPY --from=frontend-builder /app/frontend/dist ./static
+# Copy built frontend assets from builder stage properly for Flask
+# HTML template goes to templates directory
+COPY --from=frontend-builder /app/frontend/dist/index.html ./templates/
+# Static assets go to static directory
+COPY --from=frontend-builder /app/frontend/dist/vite.svg ./static/
+COPY --from=frontend-builder /app/frontend/dist/assets ./static/assets/
 
 # IMPORTANT: Provide actual environment variables at runtime!
 # Do NOT commit sensitive data into the image.
