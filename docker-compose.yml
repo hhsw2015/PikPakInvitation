@@ -1,0 +1,13 @@
+version: '3'
+
+services:
+  pikpak-auto:
+    image: vichus/pikpak-invitation:latest
+    container_name: pikpak-auto
+    ports:
+      - "5000:5000"
+    environment:
+      - MAIL_POINT_API_URL=https://your-endpoint.com
+    volumes:
+      - ./account:/app/account
+    restart: unless-stopped
