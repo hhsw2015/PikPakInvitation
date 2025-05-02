@@ -7,7 +7,7 @@ import random
 import string
 
 import requests
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, send_from_directory
 from flask_cors import CORS
 
 
@@ -30,7 +30,7 @@ from utils.email_client import EmailClient
 parser = argparse.ArgumentParser(description="PikPak 自动邀请注册系统")
 args = parser.parse_args()
 
-app = Flask(__name__)
+app = Flask(__name__, static_url_path='/assets')
 # cors
 CORS(app, resources={r"/*": {"origins": "*"}})
 app.secret_key = os.urandom(24)
@@ -38,12 +38,7 @@ app.secret_key = os.urandom(24)
 # 全局字典用于存储用户处理过程中的数据，以 email 为键
 user_process_data = {}
 
-@app.route("/")
-def index():
-    return render_template("index.html")
-
-
-@app.route("/health")
+@app.route("/api/health")
 def health_check():
     
     in_huggingface = (
@@ -57,7 +52,7 @@ def health_check():
     )
 
 
-@app.route("/initialize", methods=["POST"])
+@app.route("/api/initialize", methods=["POST"])
 def initialize():
     # 获取用户表单输入
     use_proxy = request.form.get("use_proxy") == "true"
@@ -153,7 +148,7 @@ def initialize():
     )
 
 
-@app.route("/verify_captcha", methods=["POST"])
+@app.route("/api/verify_captcha", methods=["POST"])
 def verify_captcha():
     # 尝试从表单或JSON获取email
     email = request.form.get('email')
@@ -290,7 +285,7 @@ def gen_password():
     # 生成12位密码
     return "".join(random.choices(string.ascii_letters + string.digits, k=12))
 
-@app.route("/register", methods=["POST"])
+@app.route("/api/register", methods=["POST"])
 def register():
     # 从表单获取验证码和email
     verification_code = request.form.get("verification_code")
@@ -394,7 +389,7 @@ def register():
     )
 
 
-@app.route("/test_proxy", methods=["POST"])
+@app.route("/api/test_proxy", methods=["POST"])
 def test_proxy_route():
     proxy_url = request.form.get("proxy_url", "http://127.0.0.1:7890")
     result = test_proxy(proxy_url)
@@ -407,7 +402,7 @@ def test_proxy_route():
     )
 
 
-@app.route("/get_verification", methods=["POST"])
+@app.route("/api/get_verification", methods=["POST"])
 def get_verification():
     """
     处理获取验证码的请求
@@ -425,7 +420,7 @@ def get_verification():
     return jsonify(result)
 
 
-@app.route("/fetch_accounts", methods=["GET"])
+@app.route("/api/fetch_accounts", methods=["GET"])
 def fetch_accounts():
     # 获取account文件夹中的所有JSON文件
     account_files = []
@@ -457,7 +452,7 @@ def fetch_accounts():
     )
 
 
-@app.route("/update_account", methods=["POST"])
+@app.route("/api/update_account", methods=["POST"])
 def update_account():
     data = request.json
     if not data or "filename" not in data or "account_data" not in data:
@@ -481,7 +476,7 @@ def update_account():
         return jsonify({"status": "error", "message": f"更新账号时出错: {str(e)}"})
 
 
-@app.route("/delete_account", methods=["POST"])
+@app.route("/api/delete_account", methods=["POST"])
 def delete_account():
     filename = request.form.get("filename")
 
@@ -506,7 +501,7 @@ def delete_account():
     except Exception as e:
         return jsonify({"status": "error", "message": f"删除账号时出错: {str(e)}"})
 
-@app.route("/activate_account_with_names", methods=["POST"])
+@app.route("/api/activate_account_with_names", methods=["POST"])
 def activate_account_with_names():
     try:
         data = request.json
@@ -670,7 +665,7 @@ def activate_account_with_names():
         return jsonify({"status": "error", "message": f"操作失败: {str(e)}"})
 
 
-@app.route("/check_email_inventory", methods=["GET"])
+@app.route("/api/check_email_inventory", methods=["GET"])
 def check_email_inventory():
     try:
         # 发送请求到库存API
@@ -696,7 +691,7 @@ def check_email_inventory():
         return jsonify({"status": "error", "message": f"获取库存时出错: {str(e)}"})
 
 
-@app.route("/check_balance", methods=["GET"])
+@app.route("/api/check_balance", methods=["GET"])
 def check_balance():
     try:
         # 从请求参数中获取卡号
@@ -729,7 +724,7 @@ def check_balance():
         return jsonify({"status": "error", "message": f"查询余额时出错: {str(e)}"})
 
 
-@app.route("/extract_emails", methods=["GET"])
+@app.route("/api/extract_emails", methods=["GET"])
 def extract_emails():
     try:
         # 从请求参数中获取必需的参数
@@ -870,7 +865,7 @@ def extract_emails():
 
 
 # --- 新增API：通过EmailClient获取验证码 ---
-@app.route('/get_email_verification_code', methods=['POST'])
+@app.route('/api/get_email_verification_code', methods=['POST'])
 def get_email_verification_code_api():
     """
     通过 EmailClient (通常是基于HTTP API的邮件服务) 获取验证码。
@@ -923,6 +918,17 @@ def get_email_verification_code_api():
         app.logger.error(traceback.format_exc())
         return jsonify({"status": "error", "message": f"处理请求时发生内部错误"}), 500
 
+
+
+# 处理所有前端路由
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    #favicon vite.svg
+    if path == 'favicon.ico' or path == 'vite.svg':
+        return send_from_directory("static", path)
+    # 对于所有其他请求 - 返回index.html (SPA入口点)
+    return render_template('index.html')
 
 if __name__ == "__main__":
     app.run(debug=False, host="0.0.0.0", port=5000)

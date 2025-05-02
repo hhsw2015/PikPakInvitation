@@ -1288,7 +1288,7 @@ const Register: React.FC = () => {
                 </Row>
               </Form.Item>
               <Form.Item
-                label="账号信息 (每行一条)"
+                label="微软邮箱信息 (每行一条)"
                 name="accountInfo"
                 rules={[
                   { required: true, message: "请输入账号信息" },
@@ -1383,9 +1383,9 @@ const Register: React.FC = () => {
           >
             {processingIndex === -1 && accountList.length === 0 && (
               <div>
-                <p>请在左侧输入账号信息，每行一条，格式如下:</p>
+                <p>请在左侧输入微软邮箱信息，每行一条，格式如下:</p>
                 <pre>
-                  <code>账号----密码----clientId----授权令牌</code>
+                  <code>邮箱----密码----clientId----授权令牌</code>
                 </pre>
                 <p>例如:</p>
                 <pre>
