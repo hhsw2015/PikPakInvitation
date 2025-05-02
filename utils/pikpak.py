@@ -649,6 +649,9 @@ class PikPak:
 
 
 def save_account_info(name, account_info):
+    # 保证account目录存在
+    if not os.path.exists("./account"):
+        os.makedirs("./account")
     with open("./account/" + name + ".json", "w", encoding="utf-8") as f:
         json.dump(account_info, f, ensure_ascii=False, indent=4)
 

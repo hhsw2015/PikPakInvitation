@@ -3,3 +3,33 @@ __pycache__
 .git
 .venv
 tests
+
+# Git repository files
+.git/
+.gitignore
+
+# Node modules
+node_modules/
+frontend/node_modules/
+
+# Environment files (Ensure sensitive data isn't accidentally included)
+.env
+frontend/.env
+
+# Build artifacts (Frontend build happens inside container, but good practice)
+dist/
+build/
+frontend/dist/
+frontend/build/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS generated files
+.DS_Store
+Thumbs.db
