@@ -1,6 +1,8 @@
 import imaplib
 import re
 import email
+import socket
+import socks  # 增加 socks 库支持
 
 # IMAP 服务器信息
 IMAP_SERVER = 'imap.shanyouxiang.com'
@@ -12,11 +14,40 @@ VERIFICATION_SENDERS = ['noreply@accounts.mypikpak.com']
 
 # --------------------------- IMAP 获取验证码 ---------------------------
 
-def connect_imap(email_user, email_password, folder='INBOX'):
+def connect_imap(email_user, email_password, folder='INBOX', use_proxy=False, proxy_url=None):
     """
     使用 IMAP 连接并检查指定文件夹中的验证码邮件
+    支持通过代理连接
+    
+    参数:
+        email_user: 邮箱用户名
+        email_password: 邮箱密码
+        folder: 要检查的文件夹
+        use_proxy: 是否使用代理
+        proxy_url: 代理服务器URL (例如 "http://127.0.0.1:7890")
     """
+    original_socket = None
+    
     try:
+        # 如果启用代理，设置SOCKS代理
+        if use_proxy and proxy_url:
+            # 解析代理URL
+            if proxy_url.startswith(('http://', 'https://')):
+                # 从HTTP代理URL提取主机和端口
+                from urllib.parse import urlparse
+                parsed = urlparse(proxy_url)
+                proxy_host = parsed.hostname
+                proxy_port = parsed.port or 80
+                
+                # 保存原始socket
+                original_socket = socket.socket
+                
+                # 设置socks代理
+                socks.set_default_proxy(socks.PROXY_TYPE_HTTP, proxy_host, proxy_port)
+                socket.socket = socks.socksocket
+                
+                print(f"使用代理连接IMAP服务器: {proxy_url}")
+        
         # 连接 IMAP 服务器
         mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
         mail.login(email_user, email_password)  # 直接使用邮箱密码登录
@@ -78,4 +109,8 @@ def connect_imap(email_user, email_password, folder='INBOX'):
         return {"code": 401, "msg": "IMAP 认证失败，请检查邮箱和密码是否正确"}
     except Exception as e:
         return {"code": 500, "msg": f"错误: {str(e)}"}
+    finally:
+        # 恢复原始socket
+        if original_socket:
+            socket.socket = original_socket
 

@@ -10,7 +10,8 @@
 - 后端: Python 实现的服务
 
 ## 环境变量
-MAIL_POINT_API_URL 使用：https://github.com/HChaoHui/msOauth2api 部署后获得
+(可选) MAIL_POINT_API_URL 使用：https://github.com/HChaoHui/msOauth2api 部署后获得
+如果不提供此环境变量，需要(邮箱，密码)支持imap登录
 
 ## 部署方式
 

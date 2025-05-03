@@ -3,11 +3,11 @@ import re
 import json
 import logging
 import os
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Any
 from dotenv import load_dotenv
 
-# 加载环境变量
-load_dotenv()
+# 加载环境变量，强制覆盖已存在的环境变量
+load_dotenv(override=True)
 
 # 配置日志
 logging.basicConfig(
@@ -16,21 +16,60 @@ logging.basicConfig(
 )
 logger = logging.getLogger('email_client')
 
+# 添加一条日志，显示加载的环境变量值（如果存在）
+mail_api_url = os.getenv('MAIL_POINT_API_URL', '')
+logger.info(f"加载的MAIL_POINT_API_URL环境变量值: {mail_api_url}")
+
 class EmailClient:
     """邮件客户端类，封装邮件API操作"""
     
-    def __init__(self, api_base_url: Optional[str] = None):
+    def __init__(self, api_base_url: Optional[str] = None, use_proxy: bool = False, proxy_url: Optional[str] = None):
         """
         初始化邮件客户端
         
         Args:
             api_base_url: API基础URL，如不提供则从环境变量MAIL_POINT_API_URL读取
+            use_proxy: 是否使用代理
+            proxy_url: 代理服务器URL (例如 "http://127.0.0.1:7890")
         """
         if api_base_url is None:
+            # 添加调试信息，查看API_URL是否正确加载
             api_base_url = os.getenv('MAIL_POINT_API_URL', '')
-        
+            logger.info(f"使用的MAIL_POINT_API_URL环境变量值: {api_base_url}")
+
         self.api_base_url = api_base_url.rstrip('/')
         self.session = requests.Session()
+        
+        # 初始化代理设置
+        self.use_proxy = use_proxy
+        self.proxy_url = proxy_url
+        
+        # 如果启用代理，设置代理
+        if self.use_proxy and self.proxy_url:
+            self.set_proxy(self.proxy_url)
+    
+    def set_proxy(self, proxy_url: str) -> None:
+        """
+        设置代理服务器
+        
+        Args:
+            proxy_url: 代理服务器URL (例如 "http://127.0.0.1:7890")
+        """
+        if not proxy_url:
+            logger.warning("代理URL为空，不设置代理")
+            return
+            
+        # 为会话设置代理
+        self.proxy_url = proxy_url
+        self.use_proxy = True
+        
+        # 设置代理，支持HTTP和HTTPS
+        proxies = {
+            "http": proxy_url,
+            "https": proxy_url
+        }
+        self.session.proxies.update(proxies)
+        logger.info(f"已设置代理: {proxy_url}")
     
     def _make_request(self, endpoint: str, method: str = "POST", **params) -> Dict[str, Any]:
         """
@@ -233,7 +272,7 @@ class EmailClient:
             password=password
         )
 
-        if not latest_email_data or 'PikPak' not in latest_email_data.get('send'):
+        if not latest_email_data or (latest_email_data.get('send') is not None and isinstance(latest_email_data.get('send'), str) and 'PikPak' not in latest_email_data.get('send')):
             logger.error(f"在 INBOX 获取邮箱 {email} 最新邮件失败，尝试从Junk获取")
             latest_email_data = self.get_latest_email(
                 refresh_token=token,
@@ -243,7 +282,7 @@ class EmailClient:
             )
 
             print("Junk latest_email_data", latest_email_data.get('send'))
-            if not latest_email_data or 'PikPak' not in latest_email_data.get('send'):
+            if not latest_email_data or (latest_email_data.get('send') is not None and isinstance(latest_email_data.get('send'), str) and 'PikPak' not in latest_email_data.get('send')):
                 logger.error(f"在 Junk 获取邮箱 {email} 最新邮件失败")
                 return None
 

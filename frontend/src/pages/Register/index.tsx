@@ -534,9 +534,10 @@ const Register: React.FC = () => {
       const result = response.data;
 
       if (result.status === "success" && result.verification_code) {
-        form.setFieldsValue({ verification_code: result.verification_code });
+        form.setFieldValue("verification_code", result.verification_code);
         message.success(result.msg || "验证码已自动填入");
-
+        console.log("收到验证码：", result.verification_code);
+        
         // 验证邮箱
         setTimeout(() => {
           handleEmailVerification();
@@ -981,12 +982,14 @@ const Register: React.FC = () => {
               <p style={{ color: "#666", marginBottom: "10px" }}>
                 {registrationError}
               </p>
+              <Form form={form}>
               <Form.Item
                 name="verification_code"
                 style={{ maxWidth: "300px", margin: "0 auto 10px" }}
               >
                 <Input placeholder="输入邮箱验证码" />
               </Form.Item>
+              </Form>
               <div style={{ marginTop: "8px" }}>
                 <Button
                   type="primary"
