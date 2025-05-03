@@ -230,7 +230,7 @@ class EmailClient:
         logger.info(f"尝试从邮箱 {email} 的 {mailbox} 获取验证码")
 
         print("client_id: " + client_id)
-        print("refresh_token: " + refresh_token)
+        print("refresh_token: " + token)
         print("email: " + email)
         # 调用 get_latest_email 获取邮件内容, 先从INBOX获取
         latest_email_data = self.get_latest_email(
