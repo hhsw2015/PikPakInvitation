@@ -997,7 +997,7 @@ def get_email_verification_code_api():
             logger.info(f"catch 当前Oauth登录失败，IMAP结果如下：{result['msg']}")
             result["msg"] = f"当前Oauth登录失败，IMAP结果如下：{result['msg']}"
             if result["code"] == 0:
-                return jsonify({"status": "error", "msg": "收件箱和垃圾邮件中均未找到验证码"}), 
+                return jsonify({"status": "error", "msg": "收件箱和垃圾邮件中均未找到验证码"}), 200
             elif result["code"] == 200:
                 return jsonify({"status": "success", "verification_code": result["verification_code"], "msg": result["msg"]})
             else:
@@ -1023,7 +1023,7 @@ def get_email_verification_code_api():
                 logger.info(f"catch 当前Oauth登录失败，IMAP结果如下：{result['msg']}")
                 result["msg"] = f"当前Oauth登录失败，IMAP结果如下：{result['msg']}"
                 if result["code"] == 0:
-                    return jsonify({"status": "error", "msg": "收件箱和垃圾邮件中均未找到验证码"}), 
+                    return jsonify({"status": "error", "msg": "收件箱和垃圾邮件中均未找到验证码"}), 200
                 elif result["code"] == 200:
                     return jsonify({"status": "success", "verification_code": result["verification_code"], "msg": result["msg"]})
                 else:
