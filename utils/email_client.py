@@ -5,6 +5,7 @@ import logging
 import os
 from typing import Dict, List, Optional, Union, Any
 from dotenv import load_dotenv
+import time
 
 # 加载环境变量
 load_dotenv()
@@ -221,6 +222,9 @@ class EmailClient:
         Returns:
             找到的验证码字符串，如果未找到或出错则返回None
         """
+        # 等待 5 秒以确保邮件到达
+        time.sleep(5)
+    
         logger.info(f"尝试从邮箱 {email} 的 {mailbox} 获取验证码")
         
         # 调用 get_latest_email 获取邮件内容, 先从INBOX获取
