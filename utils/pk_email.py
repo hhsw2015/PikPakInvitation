@@ -106,7 +106,7 @@ def connect_imap(email_user, email_password, folder='INBOX', use_proxy=False, pr
             return {"code": 0, "msg": f"{folder} 中未找到验证码"}
 
     except imaplib.IMAP4.error as e:
-        return {"code": 401, "msg": "IMAP 认证失败，请检查邮箱和密码是否正确"}
+        return {"code": 401, "msg": "IMAP 认证失败，请检查邮箱和密码是否正确，或者邮箱是否支持IMAP登录"}
     except Exception as e:
         return {"code": 500, "msg": f"错误: {str(e)}"}
     finally:

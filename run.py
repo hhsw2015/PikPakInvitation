@@ -931,7 +931,7 @@ def get_email_verification_code_api():
             
             # 检查是否有password参数
             if not password:
-                return jsonify({"status": "error", "message": "EmailClient失败，且未提供password参数，无法使用备用方法"}), 400
+                return jsonify({"status": "error", "msg": "EmailClient失败，且未提供password参数，无法使用备用方法"}), 200
                 
             # 先尝试从收件箱获取验证码，传入代理设置
             result = connect_imap(email, password, "INBOX", use_proxy=use_proxy, proxy_url=proxy_url)
@@ -941,10 +941,14 @@ def get_email_verification_code_api():
                 result = connect_imap(email, password, "Junk", use_proxy=use_proxy, proxy_url=proxy_url)
             
             print(result)
+            if result["code"] != 0:
+                result["msg"] = f"当前Oauth登录失败，{result['msg']}"
             if result["code"] == 0:
-                return jsonify({"status": "error", "message": "验证码获取失败"}), 400
-            else:
+                return jsonify({"status": "error", "msg": "收件箱和垃圾邮件中均未找到验证码"}), 
+            elif result["code"] == 200:
                 return jsonify({"status": "success", "verification_code": result["verification_code"], "msg": result["msg"]})
+            else:
+                return jsonify({"status": "error", "msg": result["msg"]}), 200
 
     except Exception as e:
         # 捕获实例化或调用过程中的其他潜在错误
@@ -963,10 +967,18 @@ def get_email_verification_code_api():
                 if result["code"] == 0:
                     result = connect_imap(email, password, "Junk", use_proxy=use_proxy, proxy_url=proxy_url)
                     
-                return jsonify(result)
+                print(result)
+                if result["code"] != 0:
+                    result["msg"] = f"当前Oauth登录失败，{result['msg']}"
+                if result["code"] == 0:
+                    return jsonify({"status": "error", "msg": "收件箱和垃圾邮件中均未找到验证码"}), 
+                elif result["code"] == 200:
+                    return jsonify({"status": "success", "verification_code": result["verification_code"], "msg": result["msg"]})
+                else:
+                    return jsonify({"status": "error", "msg": result["msg"]}), 200
             except Exception as backup_error:
                 app.logger.error(f"备用方法connect_imap也失败: {str(backup_error)}")
-                return jsonify({"status": "error", "message": f"主要和备用验证码获取方法均失败"}), 500
+                return jsonify({"status": "error", "message": f"主要和备用验证码获取方法均出现错误"}), 500
         
         return jsonify({"status": "error", "message": f"处理请求时发生内部错误"}), 500
 
