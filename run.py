@@ -5,6 +5,7 @@ import uuid
 import argparse  # 导入参数解析库
 import random
 import string
+import logging
 
 import requests
 from flask import Flask, render_template, request, jsonify, send_from_directory
@@ -25,6 +26,55 @@ from utils.pikpak import (
 
 # 导入 email_client
 from utils.email_client import EmailClient
+
+# 重试参数
+max_retries = 3
+retry_delay = 1.0
+
+# 设置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# 定义一个retry函数，用于重试指定的函数
+def retry_function(func, *args, max_retries=3, delay=1, **kwargs):
+    """
+    对指定函数进行重试
+    
+    Args:
+        func: 要重试的函数
+        *args: 传递给函数的位置参数
+        max_retries: 最大重试次数，默认为3
+        delay: 每次重试之间的延迟（秒），默认为1
+        **kwargs: 传递给函数的关键字参数
+        
+    Returns:
+        函数的返回值，如果所有重试都失败则返回None
+    """
+    retries = 0
+    result = None
+    
+    while retries < max_retries:
+        if retries > 0:
+            logger.info(f"第 {retries} 次重试函数 {func.__name__}...")
+        
+        result = func(*args, **kwargs)
+        
+        # 如果函数返回非None结果，视为成功
+        if result is not None:
+            if retries > 0:
+                logger.info(f"在第 {retries} 次重试后成功")
+            return result
+        
+        # 如果达到最大重试次数，返回最后一次结果
+        if retries >= max_retries - 1:
+            logger.warning(f"函数 {func.__name__} 在 {max_retries} 次尝试后失败")
+            break
+        
+        # 等待指定的延迟时间
+        time.sleep(delay)
+        retries += 1
+    
+    return result
 
 # 解析命令行参数
 parser = argparse.ArgumentParser(description="PikPak 自动邀请注册系统")
@@ -871,11 +921,12 @@ def get_email_verification_code_api():
     通过 EmailClient (通常是基于HTTP API的邮件服务) 获取验证码。
     接收 JSON 或 Form data。
     必需参数: email, token, client_id
-    可选参数: password, api_base_url, mailbox, code_regex
+    可选参数: password, api_base_url, mailbox, code_regex, max_retries, retry_delay
     
     如果EmailClient方法失败，将尝试使用connect_imap作为备用方法。
     如果用户之前已配置代理，也会使用相同的代理设置。
     """
+    global max_retries, retry_delay
     if request.is_json:
         data = request.get_json()
     else:
@@ -901,7 +952,7 @@ def get_email_verification_code_api():
         user_data = user_process_data.get(email, {})
         use_proxy = user_data.get("use_proxy", False)
         proxy_url = user_data.get("proxy_url", "") if use_proxy else None
-        app.logger.info(f"为邮箱 {email} 使用代理设置: {use_proxy}, {proxy_url}")
+        logger.info(f"为邮箱 {email} 使用代理设置: {use_proxy}, {proxy_url}")
 
     try:
         # 实例化 EmailClient，传入代理设置
@@ -911,23 +962,26 @@ def get_email_verification_code_api():
         if use_proxy and proxy_url and hasattr(email_client, 'set_proxy'):
             email_client.set_proxy(proxy_url)
         elif use_proxy and proxy_url:
-            app.logger.warning("EmailClient 类不支持设置代理")
+            logger.warning("EmailClient 类不支持设置代理")
 
-        # 调用获取验证码的方法
-        verification_code = email_client.get_verification_code(
+        # 使用重试机制调用获取验证码的方法
+        verification_code = retry_function(
+            email_client.get_verification_code,
             token=token,
             client_id=client_id,
             email=email,
             password=password,
             mailbox=mailbox,
-            code_regex=code_regex
+            code_regex=code_regex,
+            max_retries=max_retries,
+            delay=retry_delay
         )
 
         if verification_code:
             return jsonify({"status": "success", "verification_code": verification_code})
         else:
             # EmailClient 失败，尝试使用connect_imap作为备用方法
-            app.logger.info(f"EmailClient未能找到验证码，尝试使用connect_imap作为备用方法")
+            logger.info(f"EmailClient在{max_retries}次尝试后未能找到验证码，尝试使用connect_imap作为备用方法")
             
             # 检查是否有password参数
             if not password:
@@ -952,13 +1006,13 @@ def get_email_verification_code_api():
 
     except Exception as e:
         # 捕获实例化或调用过程中的其他潜在错误
-        app.logger.error(f"处理 /api/get_email_verification_code 时出错: {str(e)}")
+        logger.error(f"处理 /api/get_email_verification_code 时出错: {str(e)}")
         import traceback
-        app.logger.error(traceback.format_exc())
+        logger.error(traceback.format_exc())
         
         # 如果有password参数，尝试使用connect_imap作为备用方法
         if password:
-            app.logger.info(f"EmailClient出现异常，尝试使用connect_imap作为备用方法")
+            logger.info(f"EmailClient出现异常，尝试使用connect_imap作为备用方法")
             try:
                 # 先尝试从收件箱获取验证码，传入代理设置
                 result = connect_imap(email, password, "INBOX", use_proxy=use_proxy, proxy_url=proxy_url)
@@ -977,7 +1031,7 @@ def get_email_verification_code_api():
                 else:
                     return jsonify({"status": "error", "msg": result["msg"]}), 200
             except Exception as backup_error:
-                app.logger.error(f"备用方法connect_imap也失败: {str(backup_error)}")
+                logger.error(f"备用方法connect_imap也失败: {str(backup_error)}")
                 return jsonify({"status": "error", "message": f"主要和备用验证码获取方法均出现错误"}), 500
         
         return jsonify({"status": "error", "message": f"处理请求时发生内部错误"}), 500

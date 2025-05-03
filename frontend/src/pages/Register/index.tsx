@@ -324,7 +324,7 @@ const Register: React.FC = () => {
         // 获取验证码
         setTimeout(() => {
           handleAutoFetchCode();
-        }, 1000);
+        }, 200);
       } else {
         const errorMessage = responseData.message || "验证失败，请确保已完成滑块验证后重试";
         message.error(errorMessage);
