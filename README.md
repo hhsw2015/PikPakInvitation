@@ -64,7 +64,7 @@ docker run -d \
   -p 5000:5000 \
   -e MAIL_POINT_API_URL=https://your-endpoint.com \
   -v $(pwd)/account:/app/account \
-  vichus/pikpak-invitation:latest
+  hhsw2015/pikpak-invitation:latest
 ```
 
 参数说明：
@@ -91,7 +91,7 @@ docker start pikpak-auto
 
 注意：Windows 用户在使用 PowerShell 时，挂载卷的命令可能需要修改为：
 ```powershell
-docker run -d --name pikpak-auto -p 5000:5000 -e MAIL_POINT_API_URL=https://your-endpoint.com -v ${PWD}/account:/app/account vichus/pikpak-invitation
+docker run -d --name pikpak-auto -p 5000:5000 -e MAIL_POINT_API_URL=https://your-endpoint.com -v ${PWD}/account:/app/account hhsw2015/pikpak-invitation
 ```
 
 ### Docker Compose 部署
