@@ -281,7 +281,7 @@ class EmailClient:
                 mailbox="Junk",
             )
 
-            print("Junk latest_email_data", latest_email_data.get('send'))
+            logger.info(f"Junk latest_email_data: {latest_email_data.get('send')}")
             if not latest_email_data or (latest_email_data.get('send') is not None and isinstance(latest_email_data.get('send'), str) and 'PikPak' not in latest_email_data.get('send')):
                 logger.error(f"在 Junk 获取邮箱 {email} 最新邮件失败")
                 return None

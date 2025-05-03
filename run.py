@@ -485,7 +485,7 @@ def fetch_accounts():
                         account_data["filename"] = file
                         account_files.append(account_data)
             except Exception as e:
-                print(f"Error reading {file}: {str(e)}")
+                logger.error(f"Error reading {file}: {str(e)}")
 
     if not account_files:
         return jsonify(
@@ -994,9 +994,8 @@ def get_email_verification_code_api():
             if result["code"] == 0:
                 result = connect_imap(email, password, "Junk", use_proxy=use_proxy, proxy_url=proxy_url)
             
-            print(result)
-            if result["code"] != 0:
-                result["msg"] = f"当前Oauth登录失败，{result['msg']}"
+            logger.info(f"catch 当前Oauth登录失败，IMAP结果如下：{result['msg']}")
+            result["msg"] = f"当前Oauth登录失败，IMAP结果如下：{result['msg']}"
             if result["code"] == 0:
                 return jsonify({"status": "error", "msg": "收件箱和垃圾邮件中均未找到验证码"}), 
             elif result["code"] == 200:
@@ -1021,9 +1020,8 @@ def get_email_verification_code_api():
                 if result["code"] == 0:
                     result = connect_imap(email, password, "Junk", use_proxy=use_proxy, proxy_url=proxy_url)
                     
-                print(result)
-                if result["code"] != 0:
-                    result["msg"] = f"当前Oauth登录失败，{result['msg']}"
+                logger.info(f"catch 当前Oauth登录失败，IMAP结果如下：{result['msg']}")
+                result["msg"] = f"当前Oauth登录失败，IMAP结果如下：{result['msg']}"
                 if result["code"] == 0:
                     return jsonify({"status": "error", "msg": "收件箱和垃圾邮件中均未找到验证码"}), 
                 elif result["code"] == 200:
