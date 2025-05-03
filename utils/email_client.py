@@ -233,7 +233,13 @@ class EmailClient:
             password=password
         )
 
-        if not latest_email_data or 'PikPak' not in latest_email_data.get('send'):
+        #fix by hhsw2015 start
+        print(latest_email_data)
+
+        if (
+            not latest_email_data
+            or "mypikpak" not in latest_email_data["data"][0]["send"]
+        ):
             logger.error(f"在 INBOX 获取邮箱 {email} 最新邮件失败，尝试从Junk获取")
             latest_email_data = self.get_latest_email(
                 refresh_token=token,
@@ -242,17 +248,24 @@ class EmailClient:
                 mailbox="Junk",
             )
 
-            print("Junk latest_email_data", latest_email_data.get('send'))
-            if not latest_email_data or 'PikPak' not in latest_email_data.get('send'):
+            print(latest_email_data)
+            print("Junk latest_email_data", latest_email_data["data"][0]["send"])
+            if (
+                not latest_email_data
+                or "mypikpak" not in latest_email_data["data"][0]["send"]
+            ):
                 logger.error(f"在 Junk 获取邮箱 {email} 最新邮件失败")
                 return None
 
         # 假设邮件正文在 'text' 或 'body' 字段
-        email_content = latest_email_data.get('text') or latest_email_data.get('body')
+        email_content = (
+            latest_email_data["data"][0]["text"] or latest_email_data["data"][0]["html"]
+        )
 
         if not email_content:
-            logger.warning(f"邮箱 {email} 的最新邮件数据中未找到 'text' 或 'body' 字段")
+            logger.warning(f"邮箱 {email} 的最新邮件数据中未找到 'text' 或 'html' 字段")
             return None
+        #fix by hhsw2015 end
 
         # 使用正则表达式搜索验证码
         try:
