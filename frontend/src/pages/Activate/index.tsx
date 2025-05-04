@@ -51,6 +51,7 @@ const Activate: React.FC = () => {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [activatingAccount, setActivatingAccount] = useState<string>(''); // 当前正在激活的单个账号
 
   // 组件加载时获取账户列表
   useEffect(() => {
@@ -82,6 +83,48 @@ const Activate: React.FC = () => {
   // 处理所选行变化
   const onSelectChange = (selectedRowKeys: React.Key[]) => {
     setSelectedAccounts(selectedRowKeys as string[]);
+  };
+
+  // 激活单个账号
+  const handleActivateSingle = async (account: string) => {
+    if (!key.trim()) {
+      message.error('请输入激活密钥');
+      return;
+    }
+
+    const account_name = account.split('@')[0];
+
+    setActivatingAccount(account_name);
+    setLoading(true);
+    try {
+      // 使用之前的API，但只针对单个账号
+      const response = await activateAccounts(key, [account_name], false);
+      const data = response.data;
+
+      if (data.status === 'success') {
+        const result = data.results.find((r: any) => r.account === account);
+        message.success(`账号 ${account} 激活${result?.status === 'success' ? '成功' : '失败'}`);
+        
+        // 更新当前结果列表中对应的账号状态
+        const updatedResults = [...results];
+        const index = updatedResults.findIndex((r: AccountResult) => r.account === account);
+        if (index !== -1) {
+          const updatedAccount = data.results.find((r: any) => r.account === account);
+          if (updatedAccount) {
+            updatedResults[index] = updatedAccount;
+            setResults(updatedResults);
+          }
+        }
+      } else {
+        message.error(data.message || '激活操作返回错误');
+      }
+    } catch (error: any) {
+      console.error('激活错误:', error);
+      message.error(error.message || '激活过程中发生网络或未知错误');
+    } finally {
+      setLoading(false);
+      setActivatingAccount('');
+    }
   };
 
   // 激活所有账户
@@ -190,15 +233,33 @@ const Activate: React.FC = () => {
       title: '邮箱',
       dataIndex: 'account',
       key: 'account',
-      width: '60%',
+      width: '50%',
     },
     {
       title: '状态',
       key: 'status',
+      width: '30%',
       render: (_, record) => (
         record.status === 'success' 
           ? <Tag color="success">已激活{record.updated && ' (数据已更新)'}</Tag>
-          : <Tag color="error">{record.message || '激活失败'}</Tag> // 即使在成功摘要里，也处理可能的失败情况
+          : <Tag color="error">{record.message || '激活失败'}</Tag>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: '20%',
+      render: (_, record) => (
+        record.status === 'error' && (
+          <Button 
+            type="primary" 
+            size="small" 
+            onClick={() => handleActivateSingle(record.account)}
+            loading={loading && activatingAccount === record.account}
+          >
+            重试
+          </Button>
+        )
       ),
     }
   ];
@@ -296,7 +357,7 @@ const Activate: React.FC = () => {
             {results.length > 0 && (
                <Table
                  columns={successResultColumns}
-                 dataSource={results.filter(r => r.status === 'success')} // 只显示成功的
+                 dataSource={results} // 显示所有结果，包括成功和失败的
                  rowKey="account"
                  pagination={{ pageSize: 5 }} // 分页显示
                  size="small"
