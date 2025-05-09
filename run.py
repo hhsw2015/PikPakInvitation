@@ -5,6 +5,7 @@ import uuid
 import argparse  # 导入参数解析库
 import random
 import string
+import logging
 
 import requests
 from flask import Flask, render_template, request, jsonify, send_from_directory
@@ -25,6 +26,55 @@ from utils.pikpak import (
 
 # 导入 email_client
 from utils.email_client import EmailClient
+
+# 重试参数
+max_retries = 3
+retry_delay = 1.0
+
+# 设置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# 定义一个retry函数，用于重试指定的函数
+def retry_function(func, *args, max_retries=3, delay=1, **kwargs):
+    """
+    对指定函数进行重试
+    
+    Args:
+        func: 要重试的函数
+        *args: 传递给函数的位置参数
+        max_retries: 最大重试次数，默认为3
+        delay: 每次重试之间的延迟（秒），默认为1
+        **kwargs: 传递给函数的关键字参数
+        
+    Returns:
+        函数的返回值，如果所有重试都失败则返回None
+    """
+    retries = 0
+    result = None
+    
+    while retries < max_retries:
+        if retries > 0:
+            logger.info(f"第 {retries} 次重试函数 {func.__name__}...")
+        
+        result = func(*args, **kwargs)
+        
+        # 如果函数返回非None结果，视为成功
+        if result is not None:
+            if retries > 0:
+                logger.info(f"在第 {retries} 次重试后成功")
+            return result
+        
+        # 如果达到最大重试次数，返回最后一次结果
+        if retries >= max_retries - 1:
+            logger.warning(f"函数 {func.__name__} 在 {max_retries} 次尝试后失败")
+            break
+        
+        # 等待指定的延迟时间
+        time.sleep(delay)
+        retries += 1
+    
+    return result
 
 # 解析命令行参数
 parser = argparse.ArgumentParser(description="PikPak 自动邀请注册系统")
@@ -56,7 +106,7 @@ def health_check():
 def initialize():
     # 获取用户表单输入
     use_proxy = request.form.get("use_proxy") == "true"
-    proxy_url = request.form.get("proxy_url", "http://127.0.0.1:7890")
+    proxy_url = request.form.get("proxy_url", "")
     invite_code = request.form.get("invite_code", "")
     email = request.form.get("email", "")
 
@@ -435,7 +485,7 @@ def fetch_accounts():
                         account_data["filename"] = file
                         account_files.append(account_data)
             except Exception as e:
-                print(f"Error reading {file}: {str(e)}")
+                logger.error(f"Error reading {file}: {str(e)}")
 
     if not account_files:
         return jsonify(
@@ -478,28 +528,79 @@ def update_account():
 
 @app.route("/api/delete_account", methods=["POST"])
 def delete_account():
-    filename = request.form.get("filename")
+    # 检查是否是单个文件名还是文件名列表
+    if 'filenames' in request.form:
+        # 批量删除模式
+        filenames = request.form.getlist('filenames')
+        if not filenames:
+            return jsonify({"status": "error", "message": "未提供文件名"})
+        
+        results = {
+            "success": [],
+            "failed": []
+        }
+        
+        for filename in filenames:
+            # 安全检查文件名
+            if ".." in filename or not filename.endswith(".json"):
+                results["failed"].append({"filename": filename, "reason": "无效的文件名"})
+                continue
+            
+            file_path = os.path.join("account", filename)
+            
+            try:
+                # 检查文件是否存在
+                if not os.path.exists(file_path):
+                    results["failed"].append({"filename": filename, "reason": "账号文件不存在"})
+                    continue
+                
+                # 删除文件
+                os.remove(file_path)
+                results["success"].append(filename)
+            except Exception as e:
+                results["failed"].append({"filename": filename, "reason": str(e)})
+        
+        # 返回批量删除结果
+        if len(results["success"]) > 0:
+            if len(results["failed"]) > 0:
+                message = f"成功删除 {len(results['success'])} 个账号，{len(results['failed'])} 个账号删除失败"
+                status = "partial"
+            else:
+                message = f"成功删除 {len(results['success'])} 个账号"
+                status = "success"
+        else:
+            message = "所有账号删除失败"
+            status = "error"
+            
+        return jsonify({
+            "status": status,
+            "message": message,
+            "results": results
+        })
+    else:
+        # 保持向后兼容 - 单个文件删除模式
+        filename = request.form.get("filename")
 
-    if not filename:
-        return jsonify({"status": "error", "message": "未提供文件名"})
+        if not filename:
+            return jsonify({"status": "error", "message": "未提供文件名"})
 
-    # 安全检查文件名
-    if ".." in filename or not filename.endswith(".json"):
-        return jsonify({"status": "error", "message": "无效的文件名"})
+        # 安全检查文件名
+        if ".." in filename or not filename.endswith(".json"):
+            return jsonify({"status": "error", "message": "无效的文件名"})
 
-    file_path = os.path.join("account", filename)
+        file_path = os.path.join("account", filename)
 
-    try:
-        # 检查文件是否存在
-        if not os.path.exists(file_path):
-            return jsonify({"status": "error", "message": "账号文件不存在"})
+        try:
+            # 检查文件是否存在
+            if not os.path.exists(file_path):
+                return jsonify({"status": "error", "message": "账号文件不存在"})
 
-        # 删除文件
-        os.remove(file_path)
+            # 删除文件
+            os.remove(file_path)
 
-        return jsonify({"status": "success", "message": "账号已成功删除"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"删除账号时出错: {str(e)}"})
+            return jsonify({"status": "success", "message": "账号已成功删除"})
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"删除账号时出错: {str(e)}"})
 
 @app.route("/api/activate_account_with_names", methods=["POST"])
 def activate_account_with_names():
@@ -871,8 +972,12 @@ def get_email_verification_code_api():
     通过 EmailClient (通常是基于HTTP API的邮件服务) 获取验证码。
     接收 JSON 或 Form data。
     必需参数: email, token, client_id
-    可选参数: password, api_base_url, mailbox, code_regex
+    可选参数: password, api_base_url, mailbox, code_regex, max_retries, retry_delay
+    
+    如果EmailClient方法失败，将尝试使用connect_imap作为备用方法。
+    如果用户之前已配置代理，也会使用相同的代理设置。
     """
+    global max_retries, retry_delay
     if request.is_json:
         data = request.get_json()
     else:
@@ -881,7 +986,7 @@ def get_email_verification_code_api():
     email = data.get('email')
     token = data.get('token') # 对应 EmailClient 的 refresh_token
     client_id = data.get('client_id')
-
+    
     if not all([email, token, client_id]):
         return jsonify({"status": "error", "message": "缺少必需参数: email, token, client_id"}), 400
 
@@ -890,32 +995,94 @@ def get_email_verification_code_api():
     api_base_url = data.get('api_base_url') # 如果提供，将覆盖 EmailClient 的默认设置
     mailbox = data.get('mailbox', "INBOX")
     code_regex = data.get('code_regex', r'\b\d{6}\b') # 默认匹配6位数字
+    
+    # 检查是否在用户处理数据中有该邮箱，并提取代理设置
+    use_proxy = False
+    proxy_url = None
+    if email in user_process_data:
+        user_data = user_process_data.get(email, {})
+        use_proxy = user_data.get("use_proxy", False)
+        proxy_url = user_data.get("proxy_url", "") if use_proxy else None
+        logger.info(f"为邮箱 {email} 使用代理设置: {use_proxy}, {proxy_url}")
 
     try:
-        # 实例化 EmailClient
+        # 实例化 EmailClient，传入代理设置
         email_client = EmailClient(api_base_url=api_base_url)
+        
+        # 设置代理（如果 EmailClient 类支持代理配置）
+        if use_proxy and proxy_url and hasattr(email_client, 'set_proxy'):
+            email_client.set_proxy(proxy_url)
+        elif use_proxy and proxy_url:
+            logger.warning("EmailClient 类不支持设置代理")
 
-        # 调用获取验证码的方法
-        verification_code = email_client.get_verification_code(
+        # 使用重试机制调用获取验证码的方法
+        verification_code = retry_function(
+            email_client.get_verification_code,
             token=token,
             client_id=client_id,
             email=email,
             password=password,
             mailbox=mailbox,
-            code_regex=code_regex
+            code_regex=code_regex,
+            max_retries=max_retries,
+            delay=retry_delay
         )
 
         if verification_code:
             return jsonify({"status": "success", "verification_code": verification_code})
         else:
-            # EmailClient 内部已记录详细错误，这里返回通用未找到消息
-            return jsonify({"status": "not_found", "message": "未能找到验证码或获取邮件失败"})
+            # EmailClient 失败，尝试使用connect_imap作为备用方法
+            logger.info(f"EmailClient在{max_retries}次尝试后未能找到验证码，尝试使用connect_imap作为备用方法")
+            
+            # 检查是否有password参数
+            if not password:
+                return jsonify({"status": "error", "msg": "EmailClient失败，且未提供password参数，无法使用备用方法"}), 200
+                
+            # 先尝试从收件箱获取验证码，传入代理设置
+            result = connect_imap(email, password, "INBOX", use_proxy=use_proxy, proxy_url=proxy_url)
+
+            # 如果收件箱没有找到验证码，则尝试从垃圾邮件中查找
+            if result["code"] == 0:
+                result = connect_imap(email, password, "Junk", use_proxy=use_proxy, proxy_url=proxy_url)
+            
+            logger.info(f"catch 当前Oauth登录失败，IMAP结果如下：{result['msg']}")
+            result["msg"] = f"当前Oauth登录失败，IMAP结果如下：{result['msg']}"
+            if result["code"] == 0:
+                return jsonify({"status": "error", "msg": "收件箱和垃圾邮件中均未找到验证码"}), 200
+            elif result["code"] == 200:
+                return jsonify({"status": "success", "verification_code": result["verification_code"], "msg": result["msg"]})
+            else:
+                return jsonify({"status": "error", "msg": result["msg"]}), 200
 
     except Exception as e:
         # 捕获实例化或调用过程中的其他潜在错误
-        app.logger.error(f"处理 /api/get_email_verification_code 时出错: {str(e)}")
+        logger.error(f"处理 /api/get_email_verification_code 时出错: {str(e)}")
         import traceback
-        app.logger.error(traceback.format_exc())
+        logger.error(traceback.format_exc())
+        
+        # 如果有password参数，尝试使用connect_imap作为备用方法
+        if password:
+            logger.info(f"EmailClient出现异常，尝试使用connect_imap作为备用方法")
+            try:
+                # 先尝试从收件箱获取验证码，传入代理设置
+                result = connect_imap(email, password, "INBOX", use_proxy=use_proxy, proxy_url=proxy_url)
+                
+                # 如果收件箱没有找到验证码，则尝试从垃圾邮件中查找
+                if result["code"] == 0:
+                    result = connect_imap(email, password, "Junk", use_proxy=use_proxy, proxy_url=proxy_url)
+                    
+                logger.info(f"catch 当前Oauth登录失败，IMAP结果如下：{result['msg']}")
+                result["msg"] = f"当前Oauth登录失败，IMAP结果如下：{result['msg']}"
+                if result["code"] == 0:
+                    return jsonify({"status": "error", "msg": "收件箱和垃圾邮件中均未找到验证码"}), 200
+                elif result["code"] == 200:
+                    return jsonify({"status": "success", "verification_code": result["verification_code"], "msg": result["msg"]})
+                else:
+                    return jsonify({"status": "error", "msg": result["msg"]}), 200
+            except Exception as backup_error:
+                logger.error(f"备用方法connect_imap也失败: {str(backup_error)}")
+                return jsonify({"status": "error", "message": f"主要和备用验证码获取方法均出现错误"}), 500
+        
         return jsonify({"status": "error", "message": f"处理请求时发生内部错误"}), 500
 
 
