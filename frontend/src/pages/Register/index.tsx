@@ -73,6 +73,36 @@ const Register: React.FC = () => {
   const [emailVerificationError, setEmailVerificationError] = useState<string | null>(null);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
 
+  // 添加重置表单函数
+  const resetForm = () => {
+    // 保留邀请码
+    const savedInviteCode = form.getFieldValue("invite_code");
+    
+    // 重置表单
+    form.resetFields(["accountInfo", "verification_code"]);
+    if (savedInviteCode && saveInviteCode) {
+      form.setFieldValue("invite_code", savedInviteCode);
+    }
+    
+    // 重置状态
+    setLoading(false);
+    setAccountList([]);
+    setProcessingIndex(-1);
+    setCurrent(0);
+    setIsCaptchaVerified(false);
+    setCaptchaLoading(false);
+    setEmailVerifyLoading(false);
+    setAllAccountsProcessed(false);
+    setAutoFetchLoading(false);
+    
+    // 重置错误状态
+    setCaptchaError(null);
+    setEmailVerificationError(null);
+    setRegistrationError(null);
+    
+    message.success("已重置，可以开始新一轮注册");
+  };
+
   // Load saved invite code on mount
   useEffect(() => {
     try {
@@ -214,8 +244,8 @@ const Register: React.FC = () => {
             : acc
         )
       );
-      // Then move to intermediate complete step
-      moveToNextAccountOrComplete(); // Modified call
+      // 不再自动跳到下一个账号，让用户选择是重试还是跳过
+      // moveToNextAccountOrComplete(); // 移除这行代码
     }
   };
 
@@ -320,11 +350,13 @@ const Register: React.FC = () => {
               : acc
           )
         );
+        // 验证成功时自动移至下一步
+        setCurrent(2);
         // DO NOT call next() here, user clicks the button
         // 获取验证码
         setTimeout(() => {
           handleAutoFetchCode();
-        }, 1000);
+        }, 200);
       } else {
         const errorMessage = responseData.message || "验证失败，请确保已完成滑块验证后重试";
         message.error(errorMessage);
@@ -364,7 +396,8 @@ const Register: React.FC = () => {
       );
     } finally {
       setCaptchaLoading(false);
-      setCurrent(2);
+      // 移除这里的setCurrent(2)，让步骤只在验证成功时前进
+      // setCurrent(2);
     }
   };
 
@@ -534,9 +567,10 @@ const Register: React.FC = () => {
       const result = response.data;
 
       if (result.status === "success" && result.verification_code) {
-        form.setFieldsValue({ verification_code: result.verification_code });
+        form.setFieldValue("verification_code", result.verification_code);
         message.success(result.msg || "验证码已自动填入");
-
+        console.log("收到验证码：", result.verification_code);
+        
         // 验证邮箱
         setTimeout(() => {
           handleEmailVerification();
@@ -981,12 +1015,14 @@ const Register: React.FC = () => {
               <p style={{ color: "#666", marginBottom: "10px" }}>
                 {registrationError}
               </p>
+              <Form form={form}>
               <Form.Item
                 name="verification_code"
                 style={{ maxWidth: "300px", margin: "0 auto 10px" }}
               >
                 <Input placeholder="输入邮箱验证码" />
               </Form.Item>
+              </Form>
               <div style={{ marginTop: "8px" }}>
                 <Button
                   type="primary"
@@ -1174,7 +1210,15 @@ const Register: React.FC = () => {
 
   const handleMainButtonClick = async () => {
     if (current === 0) {
-      await startProcessing();
+      // 初始化页面
+      const currentAccount = getCurrentAccount();
+      
+      // 如果当前有错误状态的账号，提供重试选项
+      if (currentAccount && currentAccount.status === "error") {
+        handleRetryInitialization();
+      } else {
+        await startProcessing();
+      }
     } else if (current === 1) {
       // 滑块验证页面
       if (captchaError) {
@@ -1201,7 +1245,13 @@ const Register: React.FC = () => {
       }
     } else if (current === 3) {
       // 结果页面
-      handleStartNextAccount(processingIndex + 1);
+      if (allAccountsProcessed) {
+        // 如果所有账号都已处理完成，重置表单
+        resetForm();
+      } else {
+        // 否则，开始处理下一个账号
+        handleStartNextAccount(processingIndex + 1);
+      }
     }
   };
 
@@ -1210,8 +1260,14 @@ const Register: React.FC = () => {
   let mainButtonDisabled = false;
 
   if (current === 0) {
-    mainButtonText = "开始处理";
-    mainButtonDisabled = loading || processingIndex !== -1; // Disable if already processing
+    const currentAccount = getCurrentAccount();
+    if (currentAccount && currentAccount.status === "error") {
+      mainButtonText = "重试初始化";
+      mainButtonDisabled = false;
+    } else {
+      mainButtonText = "开始处理";
+      mainButtonDisabled = loading || processingIndex !== -1; // Disable if already processing
+    }
   } else if (current === 1) {
     // 滑块验证页面
     if (captchaError) {
@@ -1238,7 +1294,9 @@ const Register: React.FC = () => {
       mainButtonDisabled = form.getFieldValue("verification_code") === "";
     }
   } else if (current === 3) {
-    if (processingIndex === accountList.length - 1) {
+    if (allAccountsProcessed) {
+      mainButtonText = "完成并重置";
+    } else if (processingIndex === accountList.length - 1) {
       mainButtonText = "完成";
     } else {
       mainButtonText = "开始下一个账号";
