@@ -67,6 +67,22 @@ export const deleteAccount = async (filename: string) => {
   });
 };
 
+// 批量删除账号
+export const deleteAccounts = async (filenames: string[]) => {
+  const formData = new FormData();
+  
+  // 将多个文件名添加到 FormData
+  filenames.forEach(filename => {
+    formData.append('filenames', filename);
+  });
+  
+  return api.post('/delete_account', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+};
+
 // 更新账号
 export const updateAccount = async (filename: string, accountData: any) => {
   return api.post('/update_account', {
