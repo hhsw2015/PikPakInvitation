@@ -210,10 +210,13 @@ def captcha_image_parse(pikpak, device_id):
     try:
         # 获取frames信息
         frames_info = pikpak.gen()
-        if not frames_info or not isinstance(frames_info, dict) or "pid" not in frames_info or "traceid" not in frames_info or "frames" not in frames_info:
+        if not frames_info or not isinstance(frames_info, dict) or "pid" not in frames_info or "frames" not in frames_info:
             print("获取frames_info失败，返回内容:", frames_info)
             return {"response_data": {"result": "reject"}, "pid": "", "traceid": ""}
         
+        if "traceid" not in frames_info:
+            frames_info["traceid"] = ""
+            
         # 下载验证码图片
         captcha_image = image_download(device_id, frames_info["pid"], frames_info["traceid"], pikpak.use_proxy, pikpak.proxies)
         if not captcha_image:
@@ -441,7 +444,7 @@ class PikPak:
         headers = {"Host": "user.mypikpak.com", "accept": "application/json, text/plain, */*"}
         response = self.send_request("GET", url, headers=headers, params=params)
         # 检查响应是否有效
-        if not response or not isinstance(response, dict) or "pid" not in response or "traceid" not in response:
+        if not response or not isinstance(response, dict) or "pid" not in response or "frames" not in response:
             print(f"gen请求返回无效响应: {response}")
         return response
 

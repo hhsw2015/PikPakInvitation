@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Card, Button, message, Modal, Typography, Tag, Space, Popconfirm } from 'antd';
 import { ReloadOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons';
-import { fetchAccounts as apiFetchAccounts, deleteAccount } from '../../services/api';
+import { fetchAccounts as apiFetchAccounts, deleteAccount, deleteAccounts } from '../../services/api';
 import './index.css';
 
 const { Text, Paragraph } = Typography;
@@ -25,6 +25,9 @@ const History: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [visible, setVisible] = useState(false);
   const [currentAccount, setCurrentAccount] = useState<AccountInfo | null>(null);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [batchDeleteVisible, setBatchDeleteVisible] = useState(false);
+  const [batchDeleteLoading, setBatchDeleteLoading] = useState(false);
 
   // 修改 fetchAccounts 函数以调用 API
   const fetchAccounts = async () => {
@@ -38,6 +41,8 @@ const History: React.FC = () => {
           name: acc.name || acc.filename, // Use filename as name if name is missing
         }));
         setAccounts(fetchedAccounts);
+        // 清空选择
+        setSelectedRowKeys([]);
       } else {
         message.error(response.data.message || '获取账号列表失败');
       }
@@ -76,9 +81,59 @@ const History: React.FC = () => {
     }
   };
 
+  // 批量删除账号
+  const handleBatchDelete = async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请至少选择一个账号');
+      return;
+    }
+
+    setBatchDeleteLoading(true);
+    try {
+      // 从选中的键中提取文件名
+      const filenames = selectedRowKeys.map(key => key.toString());
+      
+      // 调用批量删除API
+      const response = await deleteAccounts(filenames);
+      
+      if (response.data && (response.data.status === 'success' || response.data.status === 'partial')) {
+        // 从状态中移除成功删除的账号
+        if (response.data.results && response.data.results.success) {
+          const successFilenames = response.data.results.success;
+          setAccounts(prevAccounts => 
+            prevAccounts.filter(acc => !successFilenames.includes(acc.filename))
+          );
+        }
+        
+        // 显示成功消息
+        message.success(response.data.message || '账号已成功删除');
+        
+        // 清空选择
+        setSelectedRowKeys([]);
+      } else {
+        // 显示API返回的错误消息
+        message.error(response.data.message || '批量删除账号失败');
+      }
+    } catch (error: any) {
+      console.error('批量删除账号错误:', error);
+      message.error(`批量删除账号出错: ${error.message || '未知错误'}`);
+    } finally {
+      setBatchDeleteLoading(false);
+      setBatchDeleteVisible(false); // 关闭确认对话框
+    }
+  };
+
   const showAccountDetails = (account: AccountInfo) => {
     setCurrentAccount(account);
     setVisible(true);
+  };
+
+  // 表格行选择配置
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: (newSelectedRowKeys: React.Key[]) => {
+      setSelectedRowKeys(newSelectedRowKeys);
+    }
   };
 
   const columns = [
@@ -151,17 +206,29 @@ const History: React.FC = () => {
         title="PikPak 历史账号" 
         className="history-card"
         extra={
-          <Button 
-            type="primary" 
-            icon={<ReloadOutlined />} 
-            onClick={fetchAccounts} 
-            loading={loading}
-          >
-            刷新
-          </Button>
+          <Space>
+            {selectedRowKeys.length > 0 && (
+              <Button
+                danger
+                icon={<DeleteOutlined />}
+                onClick={() => setBatchDeleteVisible(true)}
+              >
+                批量删除 ({selectedRowKeys.length})
+              </Button>
+            )}
+            <Button 
+              type="primary" 
+              icon={<ReloadOutlined />} 
+              onClick={fetchAccounts} 
+              loading={loading}
+            >
+              刷新
+            </Button>
+          </Space>
         }
       >
         <Table 
+          rowSelection={rowSelection}
           columns={columns} 
           dataSource={accounts} 
           rowKey="filename" 
@@ -170,6 +237,7 @@ const History: React.FC = () => {
         />
       </Card>
 
+      {/* 账号详情模态框 */}
       <Modal
         title="账号详情"
         open={visible}
@@ -218,6 +286,29 @@ const History: React.FC = () => {
             </Paragraph>
           </div>
         )}
+      </Modal>
+
+      {/* 批量删除确认对话框 */}
+      <Modal
+        title="确认批量删除"
+        open={batchDeleteVisible}
+        onCancel={() => setBatchDeleteVisible(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setBatchDeleteVisible(false)}>
+            取消
+          </Button>,
+          <Button 
+            key="delete" 
+            type="primary" 
+            danger 
+            loading={batchDeleteLoading}
+            onClick={handleBatchDelete}
+          >
+            删除
+          </Button>
+        ]}
+      >
+        <p>确定要删除选中的 {selectedRowKeys.length} 个账号吗？此操作不可撤销。</p>
       </Modal>
     </div>
   );

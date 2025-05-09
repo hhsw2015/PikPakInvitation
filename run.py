@@ -528,28 +528,79 @@ def update_account():
 
 @app.route("/api/delete_account", methods=["POST"])
 def delete_account():
-    filename = request.form.get("filename")
+    # 检查是否是单个文件名还是文件名列表
+    if 'filenames' in request.form:
+        # 批量删除模式
+        filenames = request.form.getlist('filenames')
+        if not filenames:
+            return jsonify({"status": "error", "message": "未提供文件名"})
+        
+        results = {
+            "success": [],
+            "failed": []
+        }
+        
+        for filename in filenames:
+            # 安全检查文件名
+            if ".." in filename or not filename.endswith(".json"):
+                results["failed"].append({"filename": filename, "reason": "无效的文件名"})
+                continue
+            
+            file_path = os.path.join("account", filename)
+            
+            try:
+                # 检查文件是否存在
+                if not os.path.exists(file_path):
+                    results["failed"].append({"filename": filename, "reason": "账号文件不存在"})
+                    continue
+                
+                # 删除文件
+                os.remove(file_path)
+                results["success"].append(filename)
+            except Exception as e:
+                results["failed"].append({"filename": filename, "reason": str(e)})
+        
+        # 返回批量删除结果
+        if len(results["success"]) > 0:
+            if len(results["failed"]) > 0:
+                message = f"成功删除 {len(results['success'])} 个账号，{len(results['failed'])} 个账号删除失败"
+                status = "partial"
+            else:
+                message = f"成功删除 {len(results['success'])} 个账号"
+                status = "success"
+        else:
+            message = "所有账号删除失败"
+            status = "error"
+            
+        return jsonify({
+            "status": status,
+            "message": message,
+            "results": results
+        })
+    else:
+        # 保持向后兼容 - 单个文件删除模式
+        filename = request.form.get("filename")
 
-    if not filename:
-        return jsonify({"status": "error", "message": "未提供文件名"})
+        if not filename:
+            return jsonify({"status": "error", "message": "未提供文件名"})
 
-    # 安全检查文件名
-    if ".." in filename or not filename.endswith(".json"):
-        return jsonify({"status": "error", "message": "无效的文件名"})
+        # 安全检查文件名
+        if ".." in filename or not filename.endswith(".json"):
+            return jsonify({"status": "error", "message": "无效的文件名"})
 
-    file_path = os.path.join("account", filename)
+        file_path = os.path.join("account", filename)
 
-    try:
-        # 检查文件是否存在
-        if not os.path.exists(file_path):
-            return jsonify({"status": "error", "message": "账号文件不存在"})
+        try:
+            # 检查文件是否存在
+            if not os.path.exists(file_path):
+                return jsonify({"status": "error", "message": "账号文件不存在"})
 
-        # 删除文件
-        os.remove(file_path)
+            # 删除文件
+            os.remove(file_path)
 
-        return jsonify({"status": "success", "message": "账号已成功删除"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"删除账号时出错: {str(e)}"})
+            return jsonify({"status": "success", "message": "账号已成功删除"})
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"删除账号时出错: {str(e)}"})
 
 @app.route("/api/activate_account_with_names", methods=["POST"])
 def activate_account_with_names():
