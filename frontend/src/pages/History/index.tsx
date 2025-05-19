@@ -18,6 +18,7 @@ interface AccountInfo {
   filename: string;
   captcha_token?: string;
   timestamp?: number;
+  invite_code?: string; // 新增邀请码字段
 }
 
 const History: React.FC = () => {
@@ -161,6 +162,12 @@ const History: React.FC = () => {
       },
     },
     {
+      title: '邀请码',
+      dataIndex: 'invite_code',
+      key: 'invite_code',
+      render: (invite_code?: string) => invite_code || '-',
+    },
+    {
       title: '修改日期',
       dataIndex: 'timestamp',
       key: 'timestamp',
@@ -280,6 +287,9 @@ const History: React.FC = () => {
               <div className="token-container">
                 {currentAccount.refresh_token || '无'}
               </div>
+            </Paragraph>
+            <Paragraph>
+              <Text strong>邀请码：</Text> {currentAccount.invite_code || '未提供'}
             </Paragraph>
             <Paragraph>
               <Text strong>文件名：</Text> {currentAccount.filename}

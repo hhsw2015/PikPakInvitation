@@ -425,6 +425,7 @@ def register():
         "user_id": signup_result.get("sub", ""),
         "access_token": signup_result.get("access_token", ""),
         "refresh_token": signup_result.get("refresh_token", ""),
+        "invite_code": invite_code,
     }
 
     # 保存账号信息

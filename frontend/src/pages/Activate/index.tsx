@@ -22,6 +22,7 @@ interface Account {
   version?: string;
   device_id?: string;
   timestamp?: string;
+  invite_code?: string; // 新增邀请码字段
   // 其他账户属性...
 }
 
@@ -190,6 +191,14 @@ const Activate: React.FC = () => {
 
   // 表格列定义
   const columns: ColumnsType<Account> = [
+    {
+      title: '邀请码',
+      dataIndex: 'invite_code',
+      key: 'invite_code',
+      width: '15%',
+      render: (invite_code?: string) => invite_code || '-',
+      ellipsis: true,
+    },
     {
       title: '名称',
       dataIndex: 'name',
