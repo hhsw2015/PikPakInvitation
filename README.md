@@ -12,6 +12,8 @@
 ## 环境变量
 (可选) MAIL_POINT_API_URL 使用：https://github.com/HChaoHui/msOauth2api 部署后获得
 
+ADMIN_SESSION_ID: 管理员密码 （记得修改）
+
 如果不提供此环境变量，需要(邮箱，密码)支持imap登录
 
 ## 部署方式
@@ -41,6 +43,7 @@ pnpm build
 
 ```bash
 MAIL_POINT_API_URL=https://your-endpoint.com
+ADMIN_SESSION_ID=your_admin_session_id
 ```
 
 #### 2. 源码运行
@@ -65,7 +68,9 @@ docker run -d \
   --name pikpak-auto \
   -p 5000:5000 \
   -e MAIL_POINT_API_URL=https://your-endpoint.com \
+  -e ADMIN_SESSION_ID=your_admin_session_id \
   -v $(pwd)/account:/app/account \
+  -v $(pwd)/accounts.db:/app/accounts.db \
   vichus/pikpak-invitation:latest
 ```
 
@@ -89,11 +94,6 @@ docker stop pikpak-auto
 
 # 重启容器
 docker start pikpak-auto
-```
-
-注意：Windows 用户在使用 PowerShell 时，挂载卷的命令可能需要修改为：
-```powershell
-docker run -d --name pikpak-auto -p 5000:5000 -e MAIL_POINT_API_URL=https://your-endpoint.com -v ${PWD}/account:/app/account vichus/pikpak-invitation
 ```
 
 ### Docker Compose 部署

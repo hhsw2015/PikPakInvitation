@@ -8,6 +8,7 @@ services:
       - "5000:5000"
     environment:
       - MAIL_POINT_API_URL=https://your-endpoint.com
+      - ADMIN_SESSION_ID=your_admin_session_id
     volumes:
       - ./account:/app/account
       - ./accounts.db:/app/accounts.db
