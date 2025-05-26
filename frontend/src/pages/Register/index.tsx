@@ -28,8 +28,9 @@ import {
   SyncOutlined,
   SafetyCertificateOutlined,
   MailOutlined,
+  GithubOutlined,
 } from "@ant-design/icons";
-import { loadConfig, saveConfig, updateConfig } from '../../utils/config';
+import { loadConfig, updateConfig } from '../../utils/config';
 
 const { TextArea } = Input;
 
@@ -1495,6 +1496,13 @@ const Register: React.FC = () => {
               {mainButtonText}
             </Button>
           )}
+        </div>
+        
+        <div style={{ marginTop: '16px', textAlign: 'center', fontSize: '12px', color: '#888' }}>
+          <a href="https://github.com/1653756334/PikPakInvitation" target="_blank" rel="noopener noreferrer">
+            <GithubOutlined style={{ marginRight: '4px' }} />
+            GitHub 项目地址
+          </a>
         </div>
       </Card>
       <div className="register-right">
