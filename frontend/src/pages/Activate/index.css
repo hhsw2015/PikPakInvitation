@@ -1,25 +1,225 @@
 .activate-container {
-  display: flex;
-  justify-content: center;
-  max-width: 800px;
+  max-width: 1400px;
   margin: 0 auto;
-  max-height: calc(100vh - 80px);
+  padding: 20px;
+  min-height: calc(100vh - 80px);
 }
+
+
 
 .activate-card {
-  width: 100%;
-  height: calc(100vh - 80px);
-  overflow-y: auto;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
 }
 
-.key-input-container {
-  display: flex;
+.key-input-section {
+  background: #fafafa;
+  padding: 24px;
+  border-radius: 8px;
   margin-bottom: 24px;
-  gap: 16px;
 }
 
-.results-container {
-  margin-top: 24px;
-  border-top: 1px solid #f0f0f0;
-  padding-top: 16px;
+
+
+.filter-section {
+  background: #f9f9f9;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 24px;
+  border: 1px solid #e8e8e8;
+}
+
+.filter-section .ant-divider {
+  margin: 0 0 16px 0;
+}
+
+.filter-section .ant-divider-inner-text {
+  font-weight: 600;
+  color: #1890ff;
+}
+
+.accounts-section {
+  background: white;
+  border-radius: 8px;
+}
+
+.accounts-section .ant-table {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.accounts-section .ant-table-thead > tr > th {
+  background: #fafafa;
+  font-weight: 600;
+  border-bottom: 2px solid #e8e8e8;
+}
+
+.accounts-section .ant-table-tbody > tr:hover > td {
+  background: #f0f9ff;
+}
+
+.loading-section {
+  text-align: center;
+  padding: 60px 0;
+  background: #fafafa;
+  border-radius: 8px;
+}
+
+.loading-section .ant-spin {
+  margin-bottom: 16px;
+}
+
+.results-section {
+  background: white;
+  padding: 24px;
+  border-radius: 8px;
+}
+
+.results-section .ant-result {
+  padding: 24px 0;
+}
+
+.results-section .ant-statistic {
+  text-align: center;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.results-section .ant-table {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .activate-container {
+    padding: 10px;
+  }
+  
+  .key-input-section,
+  .filter-section {
+    padding: 16px;
+  }
+  
+  .filter-section .ant-row {
+    flex-direction: column;
+  }
+  
+  .filter-section .ant-col {
+    margin-bottom: 12px;
+    width: 100% !important;
+  }
+}
+
+/* 自定义标签样式 */
+.ant-tag {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+/* 自定义按钮样式 */
+.ant-btn {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.ant-btn:focus,
+.ant-btn:active {
+  outline: none;
+  box-shadow: none;
+  border-color: transparent;
+}
+
+.ant-btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+}
+
+.ant-btn-primary:hover {
+  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.ant-btn-primary:focus,
+.ant-btn-primary:active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  outline: none;
+  box-shadow: none;
+  border-color: transparent;
+}
+
+/* Ghost按钮样式 */
+.ant-btn-primary.ant-btn-background-ghost {
+  background: transparent;
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.ant-btn-primary.ant-btn-background-ghost:hover {
+  background: #667eea;
+  border-color: #667eea;
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.ant-btn-primary.ant-btn-background-ghost:focus,
+.ant-btn-primary.ant-btn-background-ghost:active {
+  background: transparent;
+  border-color: #667eea;
+  color: #667eea;
+  outline: none;
+  box-shadow: none;
+}
+
+/* 表格行选择样式 */
+.ant-table-tbody > tr.ant-table-row-selected > td {
+  background: #e6f7ff;
+}
+
+.ant-table-tbody > tr.ant-table-row-selected:hover > td {
+  background: #bae7ff;
+}
+
+/* 统计卡片动画 */
+.ant-statistic {
+  transition: all 0.3s ease;
+}
+
+.ant-statistic:hover {
+  transform: translateY(-2px);
+}
+
+/* 筛选区域动画 */
+.filter-section {
+  transition: all 0.3s ease;
+}
+
+.filter-section:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* 加载动画增强 */
+.loading-section .ant-spin-dot {
+  font-size: 24px;
+}
+
+/* 结果页面样式增强 */
+.results-section .ant-result-icon {
+  margin-bottom: 24px;
+}
+
+.results-section .ant-result-title {
+  color: #1890ff;
+  font-weight: 600;
+}
+
+.results-section .ant-result-subtitle {
+  color: #666;
+  font-size: 16px;
 } 

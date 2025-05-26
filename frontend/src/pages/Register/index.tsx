@@ -54,6 +54,8 @@ const Register: React.FC = () => {
   const [current, setCurrent] = useState(0);
   const [form] = Form.useForm();
   const [useProxy, setUseProxy] = useState(false);
+  const [useProxyPool, setUseProxyPool] = useState(false);
+  const [useEmailProxy, setUseEmailProxy] = useState(true); // 默认开启邮件代理
   const [loading, setLoading] = useState(false); // Represents the overall batch processing state
   const [accountList, setAccountList] = useState<AccountInfo[]>([]);
   const [processingIndex, setProcessingIndex] = useState<number>(-1); // -1 indicates not started, >= 0 is the index being processed
@@ -174,7 +176,9 @@ const Register: React.FC = () => {
 
     const account = accountList[index];
     const inviteCode = form.getFieldValue("invite_code");
-    const proxyUrl = form.getFieldValue("use_proxy")
+    const formUseProxyPool = form.getFieldValue("use_proxy_pool");
+    const formUseEmailProxy = form.getFieldValue("use_email_proxy");
+    const proxyUrl = form.getFieldValue("use_proxy") && !formUseProxyPool
       ? form.getFieldValue("proxy_url")
       : undefined;
 
@@ -190,7 +194,9 @@ const Register: React.FC = () => {
       const dataToSend: any = {
         invite_code: inviteCode,
         email: account.account,
-        use_proxy: !!proxyUrl,
+        use_proxy: form.getFieldValue("use_proxy"),
+        use_proxy_pool: formUseProxyPool,
+        use_email_proxy: formUseEmailProxy,
       };
       if (proxyUrl) {
         dataToSend.proxy_url = proxyUrl;
@@ -1316,6 +1322,8 @@ const Register: React.FC = () => {
               initialValues={{
                 accountInfo: "",
                 use_proxy: false,
+                use_proxy_pool: false,
+                use_email_proxy: true,
                 proxy_url: "http://127.0.0.1:7890",
               }}
             >
@@ -1365,11 +1373,59 @@ const Register: React.FC = () => {
                 valuePropName="checked"
               >
                 <Switch
-                  onChange={(checked) => setUseProxy(checked)}
+                  onChange={(checked) => {
+                    setUseProxy(checked);
+                    if (!checked) {
+                      // 关闭代理时，同时关闭代理池和邮件代理
+                      setUseProxyPool(false);
+                      setUseEmailProxy(false);
+                      form.setFieldsValue({ 
+                        use_proxy_pool: false,
+                        use_email_proxy: false 
+                      });
+                    } else {
+                      // 开启代理时，默认开启邮件代理
+                      setUseEmailProxy(true);
+                      form.setFieldsValue({ use_email_proxy: true });
+                    }
+                  }}
                   disabled={loading}
                 />
               </Form.Item>
               {useProxy && (
+                <Form.Item
+                  label="使用内置代理池"
+                  name="use_proxy_pool"
+                  valuePropName="checked"
+                  tooltip="启用后将自动从代理池中选择可用代理，无需手动输入代理地址"
+                >
+                  <Switch 
+                    onChange={(checked) => {
+                      setUseProxyPool(checked);
+                      if (checked) {
+                        // 启用代理池时，清空手动输入的代理地址
+                        form.setFieldsValue({ proxy_url: '' });
+                        setProxyTestResult("idle");
+                      }
+                    }}
+                    disabled={loading} 
+                  />
+                </Form.Item>
+              )}
+              {useProxy && (
+                <Form.Item
+                  label="获取邮件使用代理"
+                  name="use_email_proxy"
+                  valuePropName="checked"
+                  tooltip="启用后获取邮件验证码时也会使用代理"
+                >
+                  <Switch 
+                    onChange={(checked) => setUseEmailProxy(checked)}
+                    disabled={loading} 
+                  />
+                </Form.Item>
+              )}
+              {useProxy && !useProxyPool && (
                 <Form.Item label="代理地址" required={useProxy}>
                   <div
                     style={{

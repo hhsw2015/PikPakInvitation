@@ -8,6 +8,19 @@ const api = axios.create({
   },
 });
 
+// 添加请求拦截器，自动添加会话ID头部
+api.interceptors.request.use(
+  (config) => {
+    const sessionId = localStorage.getItem('session_id');
+    if (sessionId) {
+      config.headers['X-Session-ID'] = sessionId;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
 
 // 测试代理
 export const testProxy = async (data: any) => {

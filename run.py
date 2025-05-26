@@ -27,6 +27,10 @@ from utils.pikpak import (
 # 导入 email_client
 from utils.email_client import EmailClient
 
+# 导入数据库和会话管理器
+from utils.database import db_manager
+from utils.session_manager import session_manager
+
 # 重试参数
 max_retries = 3
 retry_delay = 1.0
@@ -101,14 +105,146 @@ def health_check():
         }
     )
 
+# 会话管理相关API
+@app.route("/api/session/generate", methods=["POST"])
+def generate_session():
+    """生成新的会话ID或创建自定义会话ID"""
+    try:
+        data = request.get_json() or {}
+        custom_id = data.get('custom_id')
+        length = data.get('length', 12)
+        
+        if custom_id:
+            # 使用自定义会话ID
+            if not session_manager.is_valid_session_id(custom_id):
+                return jsonify({
+                    "status": "error",
+                    "message": "自定义会话ID格式无效"
+                })
+            
+            session_id = custom_id
+        else:
+            # 生成随机会话ID
+            if length < 6 or length > 20:
+                return jsonify({
+                    "status": "error",
+                    "message": "会话ID长度必须在6-20位之间"
+                })
+            
+            session_id = session_manager.generate_session_id(length)
+        
+        # 在数据库中创建会话记录
+        if db_manager.create_session(session_id):
+            return jsonify({
+                "status": "success",
+                "session_id": session_id,
+                "message": "会话ID创建成功"
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": "会话创建失败"
+            })
+            
+    except Exception as e:
+        logger.error(f"生成会话ID失败: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "生成会话ID失败"
+        })
+
+@app.route("/api/session/validate", methods=["POST"])
+def validate_session():
+    """验证会话ID"""
+    try:
+        data = request.get_json() or {}
+        session_id = data.get('session_id', '')
+        
+        if not session_id:
+            return jsonify({
+                "status": "error",
+                "message": "会话ID不能为空"
+            })
+        
+        is_valid = session_manager.is_valid_session_id(session_id)
+        is_admin = session_manager.is_admin(session_id)
+        
+        if is_valid:
+            # 更新会话活跃时间
+            db_manager.update_session_activity(session_id)
+            
+            return jsonify({
+                "status": "success",
+                "is_valid": True,
+                "is_admin": is_admin,
+                "message": "会话ID有效"
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "is_valid": False,
+                "is_admin": False,
+                "message": "会话ID格式无效"
+            })
+            
+    except Exception as e:
+        logger.error(f"验证会话ID失败: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "验证会话ID失败"
+        })
+
+@app.route("/api/session/info", methods=["GET"])
+def get_session_info():
+    """获取会话信息"""
+    try:
+        session_id = request.headers.get('X-Session-ID', '')
+        
+        if not session_id:
+            return jsonify({
+                "status": "error",
+                "message": "缺少会话ID"
+            })
+        
+        is_valid = session_manager.is_valid_session_id(session_id)
+        is_admin = session_manager.is_admin(session_id)
+        
+        return jsonify({
+            "status": "success",
+            "session_id": session_id,
+            "is_valid": is_valid,
+            "is_admin": is_admin
+        })
+        
+    except Exception as e:
+        logger.error(f"获取会话信息失败: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "获取会话信息失败"
+        })
+
 
 @app.route("/api/initialize", methods=["POST"])
 def initialize():
     # 获取用户表单输入
     use_proxy = request.form.get("use_proxy") == "true"
+    use_proxy_pool = request.form.get("use_proxy_pool") == "true"
+    use_email_proxy = request.form.get("use_email_proxy") == "true"
     proxy_url = request.form.get("proxy_url", "")
     invite_code = request.form.get("invite_code", "")
     email = request.form.get("email", "")
+    
+    # 如果选择使用代理池，获取随机代理
+    if use_proxy_pool:
+        random_proxy = db_manager.get_random_proxy()
+        if random_proxy:
+            proxy_url = random_proxy
+            use_proxy = True
+            logger.info(f"使用代理池代理: {proxy_url}")
+        else:
+            logger.warning("代理池中没有可用代理，将不使用代理")
+            use_proxy = False
+            use_proxy_pool = False
 
     # 初始化参数
     current_version = ramdom_version()
@@ -168,6 +304,8 @@ def initialize():
     # 将用户数据存储在全局字典中
     user_data = {
         "use_proxy": use_proxy,
+        "use_proxy_pool": use_proxy_pool,
+        "use_email_proxy": use_email_proxy,
         "proxy_url": proxy_url,
         "invite_code": invite_code,
         "email": email,
@@ -337,107 +475,137 @@ def gen_password():
 
 @app.route("/api/register", methods=["POST"])
 def register():
-    # 从表单获取验证码和email
-    verification_code = request.form.get("verification_code")
-    email = request.form.get('email') # Get email from form
+    try:
+        # 从表单获取验证码和email
+        verification_code = request.form.get("verification_code")
+        email = request.form.get('email') # Get email from form
 
-    if not email:
-        return jsonify({"status": "error", "message": "请求中未提供Email"})
+        if not email:
+            return jsonify({"status": "error", "message": "请求中未提供Email"})
 
-    if not verification_code:
-        return jsonify({"status": "error", "message": "验证码不能为空"})
+        if not verification_code:
+            return jsonify({"status": "error", "message": "验证码不能为空"})
 
-    # 从全局字典获取用户数据
-    user_data = user_process_data.get(email)
-    if not user_data:
-        return jsonify({"status": "error", "message": "会话数据不存在或已过期，请重新初始化"})
+        # 从全局字典获取用户数据
+        user_data = user_process_data.get(email)
+        if not user_data:
+            return jsonify({"status": "error", "message": "会话数据不存在或已过期，请重新初始化"})
 
 
-    # 从 user_data 中获取存储的数据
-    device_id = user_data.get("device_id")
-    # email = user_data.get("email") # Already have email
-    invite_code = user_data.get("invite_code")
-    client_id = user_data.get("client_id")
-    version = user_data.get("version")
-    algorithms = user_data.get("algorithms")
-    rtc_token = user_data.get("rtc_token")
-    client_secret = user_data.get("client_secret")
-    package_name = user_data.get("package_name")
-    use_proxy = user_data.get("use_proxy")
-    proxy_url = user_data.get("proxy_url")
-    verification_id = user_data.get("verification_id")
-    captcha_token = user_data.get("captcha_token", "")
+        # 从 user_data 中获取存储的数据
+        device_id = user_data.get("device_id")
+        # email = user_data.get("email") # Already have email
+        invite_code = user_data.get("invite_code")
+        client_id = user_data.get("client_id")
+        version = user_data.get("version")
+        algorithms = user_data.get("algorithms")
+        rtc_token = user_data.get("rtc_token")
+        client_secret = user_data.get("client_secret")
+        package_name = user_data.get("package_name")
+        use_proxy = user_data.get("use_proxy")
+        proxy_url = user_data.get("proxy_url")
+        verification_id = user_data.get("verification_id")
+        captcha_token = user_data.get("captcha_token", "")
 
-    # Check if essential data is present
-    if not device_id or not verification_id:
-        return jsonify({"status": "error", "message": "必要的会话数据丢失，请重新初始化"})
+        # Check if essential data is present
+        if not device_id or not verification_id:
+            return jsonify({"status": "error", "message": "必要的会话数据丢失，请重新初始化"})
 
-    # 创建PikPak实例
-    pikpak = PikPak(
-        invite_code,
-        client_id,
-        device_id,
-        version,
-        algorithms,
-        email,
-        rtc_token,
-        client_secret,
-        package_name,
-        use_proxy=use_proxy,
-        proxy_http=proxy_url,
-        proxy_https=proxy_url,
-    )
+        # 创建PikPak实例
+        pikpak = PikPak(
+            invite_code,
+            client_id,
+            device_id,
+            version,
+            algorithms,
+            email,
+            rtc_token,
+            client_secret,
+            package_name,
+            use_proxy=use_proxy,
+            proxy_http=proxy_url,
+            proxy_https=proxy_url,
+        )
 
-    # 从 user_data 中设置验证码令牌和验证ID
-    pikpak.captcha_token = captcha_token
-    pikpak.verification_id = verification_id
+        # 从 user_data 中设置验证码令牌和验证ID
+        pikpak.captcha_token = captcha_token
+        pikpak.verification_id = verification_id
 
-    # 验证验证码
-    pikpak.verify_post(verification_code)
+        # 验证验证码
+        pikpak.verify_post(verification_code)
 
-    # 刷新时间戳并加密签名值
-    pikpak.init("POST:/v1/auth/signup")
+        # 刷新时间戳并加密签名值
+        pikpak.init("POST:/v1/auth/signup")
 
-    # 注册并登录
-    name = email.split("@")[0]
-    password = gen_password()  # 默认密码
-    signup_result = pikpak.signup(name, password, verification_code)
+        # 注册并登录
+        name = email.split("@")[0]
+        password = gen_password()  # 默认密码
+        signup_result = pikpak.signup(name, password, verification_code)
 
-    # 填写邀请码
-    pikpak.activation_code()
+        # 填写邀请码
+        pikpak.activation_code()
 
-    if (
-        not signup_result
-        or not isinstance(signup_result, dict)
-        or "access_token" not in signup_result
-    ):
-        return jsonify({"status": "error", "message": "注册失败，请检查验证码或重试"})
+        if (
+            not signup_result
+            or not isinstance(signup_result, dict)
+            or "access_token" not in signup_result
+        ):
+            return jsonify({"status": "error", "message": "注册失败，请检查验证码或重试"})
 
-    # 保存账号信息到JSON文件
-    account_info = {
-        "captcha_token": pikpak.captcha_token,
-        "timestamp": pikpak.timestamp,
-        "name": name,
-        "email": email,
-        "password": password,
-        "device_id": device_id,
-        "version": version,
-        "user_id": signup_result.get("sub", ""),
-        "access_token": signup_result.get("access_token", ""),
-        "refresh_token": signup_result.get("refresh_token", ""),
-        "invite_code": invite_code,
-    }
-
-    # 保存账号信息
-    account_file = save_account_info(name, account_info)
-
-    return jsonify(
-        {
-            "status": "success",
-            "message": "注册成功！账号已保存。",
-            "account_info": account_info,
+        # 保存账号信息到JSON文件
+        account_info = {
+            "captcha_token": pikpak.captcha_token,
+            "timestamp": pikpak.timestamp,
+            "name": name,
+            "email": email,
+            "password": password,
+            "device_id": device_id,
+            "version": version,
+            "user_id": signup_result.get("sub", ""),
+            "access_token": signup_result.get("access_token", ""),
+            "refresh_token": signup_result.get("refresh_token", ""),
+            "invite_code": invite_code,
         }
-    )
+
+        # 获取会话ID
+        session_id = request.headers.get('X-Session-ID', '')
+        logger.info(f"session_id: {session_id}")
+        
+        if not session_id or not session_manager.is_valid_session_id(session_id):
+            logger.error(f"无效的会话ID: {session_id}")
+            return jsonify({
+                "status": "error",
+                "message": "无效的会话ID"
+            })
+
+        logger.info(f"开始保存账号信息到数据库，会话ID: {session_id}")
+        
+        # 保存账号信息到数据库
+        if db_manager.save_account(session_id, account_info):
+            logger.info(f"账号信息保存到数据库成功")
+            # 同时保存到文件（向后兼容）
+            account_file = save_account_info(name, account_info)
+            logger.info(f"account_file: {account_file}")
+            return jsonify(
+                {
+                    "status": "success",
+                    "message": "注册成功！账号已保存。",
+                    "account_info": account_info,
+                }
+            )
+        else:
+            logger.error(f"保存账号信息到数据库失败")
+            return jsonify({
+                "status": "error",
+                "message": "保存账号信息失败"
+            })
+            
+    except Exception as e:
+        logger.error(f"注册过程中发生异常: {e}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "message": f"注册过程中发生错误: {str(e)}"
+        })
 
 
 @app.route("/api/test_proxy", methods=["POST"])
@@ -473,498 +641,430 @@ def get_verification():
 
 @app.route("/api/fetch_accounts", methods=["GET"])
 def fetch_accounts():
-    # 获取account文件夹中的所有JSON文件
-    account_files = []
-    for file in os.listdir("account"):
-        if file.endswith(".json"):
-            file_path = os.path.join("account", file)
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    account_data = json.load(f)
-                    if isinstance(account_data, dict):
-                        # 添加文件名属性，用于后续操作
-                        account_data["filename"] = file
-                        account_files.append(account_data)
-            except Exception as e:
-                logger.error(f"Error reading {file}: {str(e)}")
+    try:
+        # 获取会话ID
+        session_id = request.headers.get('X-Session-ID', '')
+        if not session_id or not session_manager.is_valid_session_id(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "无效的会话ID"
+            })
 
-    if not account_files:
-        return jsonify(
-            {"status": "info", "message": "没有找到保存的账号", "accounts": []}
-        )
-    account_files.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        # 检查是否为管理员
+        is_admin = session_manager.is_admin(session_id)
+        
+        # 从数据库获取账号列表
+        accounts = db_manager.get_accounts(session_id, is_admin)
+        
+        if not accounts:
+            return jsonify({
+                "status": "info", 
+                "message": "没有找到保存的账号", 
+                "accounts": [],
+                "is_admin": is_admin
+            })
 
-    return jsonify(
-        {
+        return jsonify({
             "status": "success",
-            "message": f"找到 {len(account_files)} 个账号",
-            "accounts": account_files,
-        }
-    )
+            "message": f"找到 {len(accounts)} 个账号",
+            "accounts": accounts,
+            "is_admin": is_admin
+        })
+        
+    except Exception as e:
+        logger.error(f"获取账号列表失败: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "获取账号列表失败"
+        })
 
 
 @app.route("/api/update_account", methods=["POST"])
 def update_account():
-    data = request.json
-    if not data or "filename" not in data or "account_data" not in data:
-        return jsonify({"status": "error", "message": "请求数据不完整"})
-
-    filename = data.get("filename")
-    account_data = data.get("account_data")
-
-    # 安全检查文件名
-    if not filename or ".." in filename or not filename.endswith(".json"):
-        return jsonify({"status": "error", "message": "无效的文件名"})
-
-    file_path = os.path.join("account", filename)
-
     try:
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(account_data, f, indent=4, ensure_ascii=False)
+        # 获取会话ID
+        session_id = request.headers.get('X-Session-ID', '')
+        if not session_id or not session_manager.is_valid_session_id(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "无效的会话ID"
+            })
 
-        return jsonify({"status": "success", "message": "账号已成功更新"})
+        data = request.json
+        if not data or "id" not in data or "account_data" not in data:
+            return jsonify({"status": "error", "message": "请求数据不完整"})
+
+        account_id = data.get("id")
+        account_data = data.get("account_data")
+        is_admin = session_manager.is_admin(session_id)
+
+        # 更新数据库中的账号信息
+        if db_manager.update_account(session_id, account_id, account_data, is_admin):
+            return jsonify({"status": "success", "message": "账号信息更新成功"})
+        else:
+            return jsonify({"status": "error", "message": "更新失败，账号不存在或无权限"})
+            
     except Exception as e:
-        return jsonify({"status": "error", "message": f"更新账号时出错: {str(e)}"})
+        logger.error(f"更新账号失败: {e}")
+        return jsonify({"status": "error", "message": f"更新失败: {str(e)}"})
 
 
 @app.route("/api/delete_account", methods=["POST"])
 def delete_account():
-    # 检查是否是单个文件名还是文件名列表
-    if 'filenames' in request.form:
-        # 批量删除模式
-        filenames = request.form.getlist('filenames')
-        if not filenames:
-            return jsonify({"status": "error", "message": "未提供文件名"})
-        
-        results = {
-            "success": [],
-            "failed": []
-        }
-        
-        for filename in filenames:
-            # 安全检查文件名
-            if ".." in filename or not filename.endswith(".json"):
-                results["failed"].append({"filename": filename, "reason": "无效的文件名"})
-                continue
-            
-            file_path = os.path.join("account", filename)
-            
-            try:
-                # 检查文件是否存在
-                if not os.path.exists(file_path):
-                    results["failed"].append({"filename": filename, "reason": "账号文件不存在"})
-                    continue
-                
-                # 删除文件
-                os.remove(file_path)
-                results["success"].append(filename)
-            except Exception as e:
-                results["failed"].append({"filename": filename, "reason": str(e)})
-        
-        # 返回批量删除结果
-        if len(results["success"]) > 0:
-            if len(results["failed"]) > 0:
-                message = f"成功删除 {len(results['success'])} 个账号，{len(results['failed'])} 个账号删除失败"
-                status = "partial"
-            else:
-                message = f"成功删除 {len(results['success'])} 个账号"
-                status = "success"
-        else:
-            message = "所有账号删除失败"
-            status = "error"
-            
-        return jsonify({
-            "status": status,
-            "message": message,
-            "results": results
-        })
-    else:
-        # 保持向后兼容 - 单个文件删除模式
-        filename = request.form.get("filename")
-
-        if not filename:
-            return jsonify({"status": "error", "message": "未提供文件名"})
-
-        # 安全检查文件名
-        if ".." in filename or not filename.endswith(".json"):
-            return jsonify({"status": "error", "message": "无效的文件名"})
-
-        file_path = os.path.join("account", filename)
-
-        try:
-            # 检查文件是否存在
-            if not os.path.exists(file_path):
-                return jsonify({"status": "error", "message": "账号文件不存在"})
-
-            # 删除文件
-            os.remove(file_path)
-
-            return jsonify({"status": "success", "message": "账号已成功删除"})
-        except Exception as e:
-            return jsonify({"status": "error", "message": f"删除账号时出错: {str(e)}"})
-
-@app.route("/api/activate_account_with_names", methods=["POST"])
-def activate_account_with_names():
     try:
-        data = request.json
-        key = data.get("key")
-        names = data.get("names", [])  # 获取指定的账户名称列表
-        all_accounts = data.get("all", False)  # 获取是否处理所有账户的标志
+        # 获取会话ID
+        session_id = request.headers.get('X-Session-ID', '')
+        if not session_id or not session_manager.is_valid_session_id(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "无效的会话ID"
+            })
 
-        if not key:
-            return jsonify({"status": "error", "message": "密钥不能为空"})
+        data = request.get_json() or {}
+        is_admin = session_manager.is_admin(session_id)
+        
+        # 检查是否是批量删除
+        if 'ids' in data:
+            # 批量删除模式
+            account_ids = data.get('ids', [])
+            if not account_ids:
+                return jsonify({"status": "error", "message": "未提供账号ID"})
             
-        if not all_accounts and (not names or not isinstance(names, list)):
-            return jsonify({"status": "error", "message": "请提供有效的账户名称列表或设置 all=true"})
-
-        # 存储账号数据及其文件路径
-        accounts_with_paths = []
-        for file in os.listdir("account"):
-            if file.endswith(".json"):
-                # 如果 all=true 或者文件名在指定的names列表中，则处理该文件
-                file_name_without_ext = os.path.splitext(file)[0]
-                if all_accounts or file_name_without_ext in names or file in names:
-                    file_path = os.path.join("account", file)
-                    with open(file_path, "r", encoding="utf-8") as f:
-                        account_data = json.load(f)
-                        # 保存文件路径以便后续更新
-                        accounts_with_paths.append(
-                            {"path": file_path, "data": account_data}
-                        )
-
-        if not accounts_with_paths:
-            return jsonify({"status": "error", "message": "未找到指定的账号数据"})
-
-        # 使用多线程处理每个账号
-        import threading
-        import queue
-
-        # 创建结果队列
-        result_queue = queue.Queue()
-
-        # 定义线程处理函数
-        def process_account(account_with_path, account_key, result_q):
-            try:
-                file_path = account_with_path["path"]
-                single_account = account_with_path["data"]
-
-                response = requests.post(
-                    headers={
-                        "Content-Type": "application/json",
-                        "referer": "https://inject.kiteyuan.info/",
-                        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0",
-                    },
-                    url="https://inject.kiteyuan.info/infoInject",
-                    json={"info": single_account, "key": account_key},
-                    timeout=30,
-                )
-
-                # 将结果放入队列
-                if response.status_code == 200:
-                    api_result = response.json()
-
-                    # 检查API是否返回了正确的数据格式
-                    if isinstance(api_result, dict) and api_result.get("code") == 200 and "data" in api_result:
-                        # 获取返回的数据对象
-                        account_data = api_result.get("data", {})
-                        
-                        if account_data and isinstance(account_data, dict):
-                            # 更新账号信息
-                            updated_account = single_account.copy()
-
-                            # 更新令牌信息 (从data子对象中提取)
-                            for key in ["access_token", "refresh_token", "captcha_token", "timestamp", "device_id", "user_id"]:
-                                if key in account_data:
-                                    updated_account[key] = account_data[key]
-
-                            # 保存更新后的账号数据
-                            with open(file_path, "w", encoding="utf-8") as f:
-                                json.dump(updated_account, f, indent=4, ensure_ascii=False)
-
-                            # 将更新后的数据放入结果队列
-                            result_q.put(
-                                {
-                                    "status": "success",
-                                    "account": single_account.get("email", "未知邮箱"),
-                                    "result": account_data,
-                                    "updated": True,
-                                }
-                            )
-                        else:
-                            # 返回的data不是字典类型
-                            result_q.put(
-                                {
-                                    "status": "error",
-                                    "account": single_account.get("email", "未知邮箱"),
-                                    "message": "返回的数据格式不符合预期",
-                                    "result": api_result,
-                                }
-                            )
-                    else:
-                        # API返回错误码或格式不符合预期
-                        error_msg = api_result.get("msg", "未知错误")
-                        result_q.put(
-                            {
-                                "status": "error",
-                                "account": single_account.get("email", "未知邮箱"),
-                                "message": f"激活失败: {error_msg}",
-                                "result": api_result,
-                            }
-                        )
-                else:
-                    result_q.put(
-                        {
-                            "status": "error",
-                            "account": single_account.get("email", "未知邮箱"),
-                            "message": f"激活失败: HTTP {response.status_code}-{response.json().get('detail', '未知错误')}",
-                            "result": response.text,
-                        }
-                    )
-            except Exception as e:
-                result_q.put(
-                    {
-                        "status": "error",
-                        "account": single_account.get("email", "未知邮箱"),
-                        "message": f"处理失败: {str(e)}",
-                    }
-                )
-
-        # 创建并启动线程
-        threads = []
-        for account_with_path in accounts_with_paths:
-            thread = threading.Thread(
-                target=process_account, args=(account_with_path, key, result_queue)
-            )
-            threads.append(thread)
-            thread.start()
-
-        # 等待所有线程完成
-        for thread in threads:
-            thread.join()
-
-        # 收集所有结果
-        results = []
-        while not result_queue.empty():
-            results.append(result_queue.get())
-
-        # 统计成功和失败的数量
-        success_count = sum(1 for r in results if r["status"] == "success")
-        updated_count = sum(
-            1
-            for r in results
-            if r.get("status") == "success" and r.get("updated", False)
-        )
-
-        return jsonify(
-            {
-                "status": "success",
-                "message": f"账号激活完成: {success_count}/{len(accounts_with_paths)}个成功, {updated_count}个已更新数据",
-                "results": results,
+            results = {
+                "success": [],
+                "failed": []
             }
-        )
-
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"操作失败: {str(e)}"})
-
-
-@app.route("/api/check_email_inventory", methods=["GET"])
-def check_email_inventory():
-    try:
-        # 发送请求到库存API
-        response = requests.get(
-            url="https://zizhu.shanyouxiang.com/kucun",
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
-            },
-            timeout=10,
-        )
-
-        if response.status_code == 200:
-            return jsonify({"status": "success", "inventory": response.json()})
-        else:
-            return jsonify(
-                {
-                    "status": "error",
-                    "message": f"获取库存失败: HTTP {response.status_code}",
-                }
-            )
-
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"获取库存时出错: {str(e)}"})
-
-
-@app.route("/api/check_balance", methods=["GET"])
-def check_balance():
-    try:
-        # 从请求参数中获取卡号
-        card = request.args.get("card")
-
-        if not card:
-            return jsonify({"status": "error", "message": "未提供卡号参数"})
-
-        # 发送请求到余额查询API
-        response = requests.get(
-            url="https://zizhu.shanyouxiang.com/yue",
-            params={"card": card},
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
-            },
-            timeout=10,
-        )
-
-        if response.status_code == 200:
-            return jsonify({"status": "success", "balance": response.json()})
-        else:
-            return jsonify(
-                {
-                    "status": "error",
-                    "message": f"查询余额失败: HTTP {response.status_code}",
-                }
-            )
-
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"查询余额时出错: {str(e)}"})
-
-
-@app.route("/api/extract_emails", methods=["GET"])
-def extract_emails():
-    try:
-        # 从请求参数中获取必需的参数
-        card = request.args.get("card")
-        shuliang = request.args.get("shuliang")
-        leixing = request.args.get("leixing")
-        # 获取前端传递的重试次数计数器，如果没有则初始化为0
-        frontend_retry_count = int(request.args.get("retry_count", "0"))
-
-        # 验证必需的参数
-        if not card:
-            return jsonify({"status": "error", "message": "未提供卡号参数"})
-
-        if not shuliang:
-            return jsonify({"status": "error", "message": "未提供提取数量参数"})
-
-        if not leixing or leixing not in ["outlook", "hotmail"]:
-            return jsonify(
-                {
-                    "status": "error",
-                    "message": "提取类型参数无效，必须为 outlook 或 hotmail",
-                }
-            )
-
-        # 尝试将数量转换为整数
-        try:
-            shuliang_int = int(shuliang)
-            if shuliang_int < 1 or shuliang_int > 2000:
-                return jsonify(
-                    {"status": "error", "message": "提取数量必须在1到2000之间"}
-                )
-        except ValueError:
-            return jsonify({"status": "error", "message": "提取数量必须为整数"})
-
-        # 后端重试计数器
-        retry_count = 0
-        max_retries = 20  # 单次后端请求的最大重试次数
-        retry_delay = 0  # 每次重试间隔秒数
-
-        # 记录总的前端+后端重试次数，用于展示给用户
-        total_retry_count = frontend_retry_count
-
-        while retry_count < max_retries:
-            # 发送请求到邮箱提取API
-            response = requests.get(
-                url="https://zizhu.shanyouxiang.com/huoqu",
-                params={"card": card, "shuliang": shuliang, "leixing": leixing},
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
-                },
-                timeout=10,  # 降低单次请求的超时时间，以便更快地进行重试
-            )
-
-            if response.status_code == 200:
-                # 检查响应是否为JSON格式，如果是，通常表示没有库存
+            
+            for account_id in account_ids:
                 try:
-                    json_response = response.json()
-                    if isinstance(json_response, dict) and "msg" in json_response:
-                        # 没有库存，需要重试
-                        retry_count += 1
-                        total_retry_count += 1
-
-                        # 如果达到后端最大重试次数，返回特殊状态让前端继续重试
-                        if retry_count >= max_retries:
-                            return jsonify(
-                                {
-                                    "status": "retry",
-                                    "message": f"暂无库存: {json_response['msg']}，已重试{total_retry_count}次，继续尝试中...",
-                                    "retry_count": total_retry_count,
-                                }
-                            )
-
-                        # 等待一段时间后重试
-                        time.sleep(retry_delay)
-                        continue
-                except ValueError:
-                    # 不是JSON格式，可能是成功的文本列表响应
-                    pass
-
-                # 处理文本响应
-                response_text = response.text.strip()
-
-                # 解析响应文本为邮箱列表
-                emails = []
-                if response_text:
-                    for line in response_text.split("\n"):
-                        if line.strip():
-                            emails.append(line.strip())
-
-                # 如果没有实际提取到邮箱（可能是空文本响应），继续重试
-                if not emails:
-                    retry_count += 1
-                    total_retry_count += 1
-
-                    if retry_count >= max_retries:
-                        return jsonify(
-                            {
-                                "status": "retry",
-                                "message": f"未能获取到邮箱，已重试{total_retry_count}次，继续尝试中...",
-                                "retry_count": total_retry_count,
-                            }
-                        )
-
-                    time.sleep(retry_delay)
-                    continue
-
-                # 成功获取到邮箱，返回结果
-                return jsonify(
-                    {
-                        "status": "success",
-                        "emails": emails,
-                        "count": len(emails),
-                        "retries": total_retry_count,
-                        "message": f"成功获取{len(emails)}个邮箱，总共重试{total_retry_count}次",
-                    }
-                )
+                    if db_manager.delete_account(session_id, account_id, is_admin):
+                        results["success"].append(account_id)
+                    else:
+                        results["failed"].append({"id": account_id, "reason": "删除失败或无权限"})
+                except Exception as e:
+                    results["failed"].append({"id": account_id, "reason": str(e)})
+            
+            # 返回批量删除结果
+            if len(results["success"]) > 0:
+                if len(results["failed"]) > 0:
+                    message = f"成功删除 {len(results['success'])} 个账号，{len(results['failed'])} 个账号删除失败"
+                    status = "partial"
+                else:
+                    message = f"成功删除 {len(results['success'])} 个账号"
+                    status = "success"
             else:
-                # 请求失败，返回错误
-                return jsonify(
-                    {
-                        "status": "error",
-                        "message": f"提取邮箱失败: HTTP {response.status_code}",
-                        "response": response.text,
-                    }
-                )
+                message = "所有账号删除失败"
+                status = "error"
+                
+            return jsonify({
+                "status": status,
+                "message": message,
+                "results": results
+            })
+        else:
+            # 单个删除模式
+            account_id = data.get("id")
+            if not account_id:
+                return jsonify({"status": "error", "message": "未提供账号ID"})
 
-        # 如果执行到这里，说明超过了最大重试次数
-        return jsonify(
-            {
-                "status": "retry",
-                "message": f"暂无邮箱库存，已重试{total_retry_count}次，继续尝试中...",
-                "retry_count": total_retry_count,
-            }
-        )
-
+            if db_manager.delete_account(session_id, account_id, is_admin):
+                return jsonify({"status": "success", "message": "账号已成功删除"})
+            else:
+                return jsonify({"status": "error", "message": "删除失败，账号不存在或无权限"})
+                
     except Exception as e:
-        return jsonify({"status": "error", "message": f"提取邮箱时出错: {str(e)}"})
+        logger.error(f"删除账号失败: {e}")
+        return jsonify({"status": "error", "message": f"删除账号时出错: {str(e)}"})
 
+@app.route("/api/migrate_data", methods=["POST"])
+def migrate_data():
+    """从文件迁移数据到数据库"""
+    try:
+        # 获取会话ID
+        session_id = request.headers.get('X-Session-ID', '')
+        if not session_id or not session_manager.is_valid_session_id(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "无效的会话ID"
+            })
+
+        # 只有管理员可以执行数据迁移
+        if not session_manager.is_admin(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "只有管理员可以执行数据迁移"
+            })
+
+        # 执行数据迁移
+        migrated_count = db_manager.migrate_from_files()
+        
+        return jsonify({
+            "status": "success",
+            "message": f"数据迁移完成，共迁移 {migrated_count} 个账号",
+            "migrated_count": migrated_count
+        })
+        
+    except Exception as e:
+        logger.error(f"数据迁移失败: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"数据迁移失败: {str(e)}"
+        })
+
+# 代理池管理API
+@app.route("/api/proxy/list", methods=["GET"])
+def get_proxy_list():
+    """获取代理列表"""
+    try:
+        # 获取会话ID
+        session_id = request.headers.get('X-Session-ID', '')
+        if not session_id or not session_manager.is_valid_session_id(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "无效的会话ID"
+            })
+
+        # 只有管理员可以查看代理列表
+        if not session_manager.is_admin(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "只有管理员可以查看代理列表"
+            })
+
+        proxies = db_manager.get_proxy_list()
+        
+        return jsonify({
+            "status": "success",
+            "proxies": proxies,
+            "total": len(proxies)
+        })
+        
+    except Exception as e:
+        logger.error(f"获取代理列表失败: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"获取代理列表失败: {str(e)}"
+        })
+
+@app.route("/api/proxy/add", methods=["POST"])
+def add_proxy():
+    """添加代理"""
+    try:
+        # 获取会话ID
+        session_id = request.headers.get('X-Session-ID', '')
+        if not session_id or not session_manager.is_valid_session_id(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "无效的会话ID"
+            })
+
+        # 只有管理员可以添加代理
+        if not session_manager.is_admin(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "只有管理员可以添加代理"
+            })
+
+        data = request.get_json() or {}
+        proxy_url = data.get('proxy_url', '').strip()
+        
+        if not proxy_url:
+            return jsonify({
+                "status": "error",
+                "message": "代理URL不能为空"
+            })
+
+        # 验证代理URL格式
+        proxy_info = db_manager.parse_proxy_url(proxy_url)
+        if not proxy_info:
+            return jsonify({
+                "status": "error",
+                "message": "无效的代理URL格式，请使用: 协议://用户名:密码@主机:端口"
+            })
+
+        # 添加代理
+        if db_manager.add_proxy(proxy_url):
+            return jsonify({
+                "status": "success",
+                "message": "代理添加成功"
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": "代理添加失败"
+            })
+        
+    except Exception as e:
+        logger.error(f"添加代理失败: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"添加代理失败: {str(e)}"
+        })
+
+@app.route("/api/proxy/remove", methods=["POST"])
+def remove_proxy():
+    """删除代理"""
+    try:
+        # 获取会话ID
+        session_id = request.headers.get('X-Session-ID', '')
+        if not session_id or not session_manager.is_valid_session_id(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "无效的会话ID"
+            })
+
+        # 只有管理员可以删除代理
+        if not session_manager.is_admin(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "只有管理员可以删除代理"
+            })
+
+        data = request.get_json() or {}
+        proxy_id = data.get('proxy_id')
+        
+        if not proxy_id:
+            return jsonify({
+                "status": "error",
+                "message": "代理ID不能为空"
+            })
+
+        # 删除代理
+        if db_manager.remove_proxy(proxy_id):
+            return jsonify({
+                "status": "success",
+                "message": "代理删除成功"
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": "代理删除失败或不存在"
+            })
+        
+    except Exception as e:
+        logger.error(f"删除代理失败: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"删除代理失败: {str(e)}"
+        })
+
+@app.route("/api/proxy/test", methods=["POST"])
+def test_proxy_single():
+    """测试单个代理"""
+    try:
+        # 获取会话ID
+        session_id = request.headers.get('X-Session-ID', '')
+        if not session_id or not session_manager.is_valid_session_id(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "无效的会话ID"
+            })
+
+        # 只有管理员可以测试代理
+        if not session_manager.is_admin(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "只有管理员可以测试代理"
+            })
+
+        data = request.get_json() or {}
+        proxy_url = data.get('proxy_url', '').strip()
+        
+        if not proxy_url:
+            return jsonify({
+                "status": "error",
+                "message": "代理URL不能为空"
+            })
+
+        # 测试代理
+        test_result = db_manager.test_proxy(proxy_url)
+        
+        # 查找代理ID并更新统计
+        proxies = db_manager.get_proxy_list()
+        proxy_id = None
+        for proxy in proxies:
+            if proxy['proxy_url'] == proxy_url:
+                proxy_id = proxy['id']
+                break
+        
+        if proxy_id:
+            # 更新代理状态
+            db_manager.update_proxy_status(
+                proxy_id, 
+                test_result['success'], 
+                test_result.get('response_time')
+            )
+        
+        return jsonify({
+            "status": "success",
+            "test_result": test_result
+        })
+        
+    except Exception as e:
+        logger.error(f"测试代理失败: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"测试代理失败: {str(e)}"
+        })
+
+@app.route("/api/proxy/test-all", methods=["POST"])
+def test_all_proxies():
+    """批量测试所有代理"""
+    try:
+        # 获取会话ID
+        session_id = request.headers.get('X-Session-ID', '')
+        if not session_id or not session_manager.is_valid_session_id(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "无效的会话ID"
+            })
+
+        # 只有管理员可以批量测试代理
+        if not session_manager.is_admin(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "只有管理员可以批量测试代理"
+            })
+
+        # 批量测试代理
+        test_results = db_manager.batch_test_proxies()
+        
+        return jsonify({
+            "status": "success",
+            "message": f"测试完成: {test_results['success']}/{test_results['total']} 成功",
+            "results": test_results
+        })
+        
+    except Exception as e:
+        logger.error(f"批量测试代理失败: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"批量测试代理失败: {str(e)}"
+        })
+
+@app.route("/api/proxy/random", methods=["GET"])
+def get_random_proxy():
+    """获取随机代理（供内部使用）"""
+    try:
+        proxy_url = db_manager.get_random_proxy()
+        
+        if proxy_url:
+            return jsonify({
+                "status": "success",
+                "proxy_url": proxy_url
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": "没有可用的代理"
+            })
+        
+    except Exception as e:
+        logger.error(f"获取随机代理失败: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"获取随机代理失败: {str(e)}"
+        })
 
 # --- 新增API：通过EmailClient获取验证码 ---
 @app.route('/api/get_email_verification_code', methods=['POST'])
@@ -1002,9 +1102,9 @@ def get_email_verification_code_api():
     proxy_url = None
     if email in user_process_data:
         user_data = user_process_data.get(email, {})
-        use_proxy = user_data.get("use_proxy", False)
+        use_proxy = user_data.get("use_proxy", False) and user_data.get("use_email_proxy", True)
         proxy_url = user_data.get("proxy_url", "") if use_proxy else None
-        logger.info(f"为邮箱 {email} 使用代理设置: {use_proxy}, {proxy_url}")
+        logger.info(f"为邮箱 {email} 使用代理设置: {use_proxy}, {proxy_url} (邮件代理: {user_data.get('use_email_proxy', True)})")
 
     try:
         # 实例化 EmailClient，传入代理设置

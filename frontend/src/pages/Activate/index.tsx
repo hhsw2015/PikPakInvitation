@@ -1,10 +1,42 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Input, Button, Typography, Tag, message, Result, Spin, Row, Col, Table, Space } from 'antd';
+import { 
+  Card, 
+  Input, 
+  Button, 
+  Typography, 
+  Tag, 
+  message, 
+  Result, 
+  Spin, 
+  Row, 
+  Col, 
+  Table, 
+  Space, 
+  Select,
+  Statistic,
+  Alert,
+  Tooltip,
+  Badge,
+  Divider
+} from 'antd';
+import {
+  RocketOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  ReloadOutlined,
+  FilterOutlined,
+  ClearOutlined,
+  UserOutlined,
+  MailOutlined,
+  CalendarOutlined,
+  GiftOutlined
+} from '@ant-design/icons';
 import './index.css';
 import { activateAccounts, fetchAccounts } from '../../services/api';
 import type { ColumnsType } from 'antd/es/table';
 
-const { Paragraph } = Typography;
+const { Title, Text } = Typography;
+const { Option } = Select;
 
 interface AccountResult {
   status: 'success' | 'error';
@@ -22,7 +54,7 @@ interface Account {
   version?: string;
   device_id?: string;
   timestamp?: string;
-  invite_code?: string; // 新增邀请码字段
+  invite_code?: string;
   // 其他账户属性...
 }
 
@@ -32,12 +64,33 @@ const formatTimestamp = (timestampStr?: string): string => {
   try {
     const timestamp = parseInt(timestampStr, 10);
     if (isNaN(timestamp)) return '无效时间戳';
-    // 检查时间戳是否是毫秒级，如果不是（例如秒级），乘以1000
     const date = new Date(timestamp < 10000000000 ? timestamp * 1000 : timestamp);
-    return date.toLocaleString('zh-CN'); // 使用本地化格式
+    return date.toLocaleString('zh-CN');
   } catch (e) {
     console.error("Error formatting timestamp:", e);
     return '格式化错误';
+  }
+};
+
+// 获取相对时间
+const getRelativeTime = (timestampStr?: string): string => {
+  if (!timestampStr) return '-';
+  try {
+    const timestamp = parseInt(timestampStr, 10);
+    if (isNaN(timestamp)) return '无效时间戳';
+    const date = new Date(timestamp < 10000000000 ? timestamp * 1000 : timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    
+    if (diffDays > 0) return `${diffDays}天前`;
+    if (diffHours > 0) return `${diffHours}小时前`;
+    if (diffMinutes > 0) return `${diffMinutes}分钟前`;
+    return '刚刚';
+  } catch (e) {
+    return '时间错误';
   }
 };
 
@@ -50,14 +103,54 @@ const Activate: React.FC = () => {
   
   // 状态
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [filteredAccounts, setFilteredAccounts] = useState<Account[]>([]);
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
-  const [activatingAccount, setActivatingAccount] = useState<string>(''); // 当前正在激活的单个账号
+  const [activatingAccount, setActivatingAccount] = useState<string>('');
+
+  // 筛选状态
+  const [inviteCodeFilter, setInviteCodeFilter] = useState<string>('');
+  const [emailFilter, setEmailFilter] = useState<string>('');
+  const [availableInviteCodes, setAvailableInviteCodes] = useState<string[]>([]);
 
   // 组件加载时获取账户列表
   useEffect(() => {
     loadAccounts();
   }, []);
+
+  // 筛选账户
+  useEffect(() => {
+    let filtered = accounts;
+    
+    if (inviteCodeFilter) {
+      filtered = filtered.filter(account => 
+        account.invite_code === inviteCodeFilter
+      );
+    }
+    
+    if (emailFilter) {
+      filtered = filtered.filter(account => 
+        account.email.toLowerCase().includes(emailFilter.toLowerCase()) ||
+        account.name.toLowerCase().includes(emailFilter.toLowerCase())
+      );
+    }
+    
+    setFilteredAccounts(filtered);
+    
+    // 清空选择的账户（如果它们不在筛选结果中）
+    const filteredFilenames = filtered.map(acc => acc.filename);
+    setSelectedAccounts(prev => prev.filter(filename => filteredFilenames.includes(filename)));
+  }, [accounts, inviteCodeFilter, emailFilter]);
+
+  // 提取可用的邀请码
+  useEffect(() => {
+    const codes = Array.from(new Set(
+      accounts
+        .map(acc => acc.invite_code)
+        .filter((code): code is string => code !== undefined && code.trim() !== '')
+    )).sort();
+    setAvailableInviteCodes(codes);
+  }, [accounts]);
 
   // 加载账户列表函数
   const loadAccounts = async () => {
@@ -67,15 +160,15 @@ const Activate: React.FC = () => {
       const response = await fetchAccounts();
       if (response.data.status === 'success') {
         setAccounts(response.data.accounts || []);
-        setView('accounts'); // 加载成功后显示账户列表
+        setView('accounts');
       } else {
         message.error(response.data.message || '获取账户列表失败');
-        setView('initial'); // 失败返回初始状态
+        setView('initial');
       }
     } catch (error: any) {
       console.error('获取账户错误:', error);
       message.error('获取账户列表时出错: ' + (error.message || '未知错误'));
-      setView('initial'); // 异常返回初始状态
+      setView('initial');
     } finally {
       setLoadingAccounts(false);
     }
@@ -86,6 +179,12 @@ const Activate: React.FC = () => {
     setSelectedAccounts(selectedRowKeys as string[]);
   };
 
+  // 清空筛选
+  const clearFilters = () => {
+    setInviteCodeFilter('');
+    setEmailFilter('');
+  };
+
   // 激活单个账号
   const handleActivateSingle = async (account: string) => {
     if (!key.trim()) {
@@ -94,11 +193,10 @@ const Activate: React.FC = () => {
     }
 
     const account_name = account.split('@')[0];
-
     setActivatingAccount(account_name);
     setLoading(true);
+    
     try {
-      // 使用之前的API，但只针对单个账号
       const response = await activateAccounts(key, [account_name], false);
       const data = response.data;
 
@@ -106,7 +204,6 @@ const Activate: React.FC = () => {
         const result = data.results.find((r: any) => r.account === account);
         message.success(`账号 ${account} 激活${result?.status === 'success' ? '成功' : '失败'}`);
         
-        // 更新当前结果列表中对应的账号状态
         const updatedResults = [...results];
         const index = updatedResults.findIndex((r: AccountResult) => r.account === account);
         if (index !== -1) {
@@ -142,6 +239,16 @@ const Activate: React.FC = () => {
     await handleActivate(false, selectedAccounts);
   };
 
+  // 激活筛选结果中的所有账户
+  const handleActivateFiltered = async () => {
+    if (filteredAccounts.length === 0) {
+      message.warning('当前筛选结果为空');
+      return;
+    }
+    const filteredFilenames = filteredAccounts.map(acc => acc.filename);
+    await handleActivate(false, filteredFilenames);
+  };
+
   // 激活账户通用函数
   const handleActivate = async (activateAll: boolean, names: string[]) => {
     if (!key.trim()) {
@@ -150,7 +257,7 @@ const Activate: React.FC = () => {
     }
 
     setLoading(true);
-    setView('loading'); // 设置为加载中视图
+    setView('loading');
     setResults([]);
     setSuccessMessage('');
 
@@ -159,23 +266,21 @@ const Activate: React.FC = () => {
       const data = response.data;
 
       if (data.status === 'success') {
-        // message.success(data.message || '激活成功完成'); // 使用下方摘要信息
         setResults(data.results || []);
         setSuccessMessage(data.message || '激活成功完成');
-        setView('success_summary'); // 显示成功摘要视图
-        setSelectedAccounts([]); // 清空选择，为下次做准备
+        setView('success_summary');
+        setSelectedAccounts([]);
       } else if (data.status === 'error') {
         message.error(data.message || '激活操作返回错误');
-        setView('accounts'); // 激活失败返回账户列表视图
+        setView('accounts');
       } else {
         message.warning('收到未知的响应状态');
-        setView('accounts'); // 未知状态也返回账户列表
+        setView('accounts');
       }
-
     } catch (error: any) {
       console.error('激活错误:', error);
       message.error(error.message || '激活过程中发生网络或未知错误');
-      setView('accounts'); // 异常返回账户列表
+      setView('accounts');
     } finally {
       setLoading(false);
     }
@@ -183,48 +288,102 @@ const Activate: React.FC = () => {
 
   // 返回账户选择视图
   const handleContinueActivating = () => {
-    // setView('accounts'); // 先不切换视图，等待加载完成
-    setResults([]); // 可以选择性清空结果
+    setResults([]);
     setSuccessMessage('');
-    loadAccounts(); // 重新加载账户列表，加载函数内部会设置视图
+    loadAccounts();
   };
 
   // 表格列定义
   const columns: ColumnsType<Account> = [
     {
-      title: '邀请码',
+      title: (
+        <Space>
+          <GiftOutlined />
+          邀请码
+        </Space>
+      ),
       dataIndex: 'invite_code',
       key: 'invite_code',
       width: '15%',
-      render: (invite_code?: string) => invite_code || '-',
+      render: (invite_code?: string) => (
+        invite_code ? (
+          <Tag color="blue" style={{ fontFamily: 'monospace' }}>
+            {invite_code}
+          </Tag>
+        ) : (
+          <Text type="secondary">-</Text>
+        )
+      ),
       ellipsis: true,
     },
     {
-      title: '名称',
+      title: (
+        <Space>
+          <UserOutlined />
+          名称
+        </Space>
+      ),
       dataIndex: 'name',
       key: 'name',
       width: '15%',
+      render: (name: string) => (
+        <Text strong style={{ color: '#1890ff' }}>
+          {name}
+        </Text>
+      ),
     },
     {
-      title: '邮箱',
+      title: (
+        <Space>
+          <MailOutlined />
+          邮箱
+        </Space>
+      ),
       dataIndex: 'email',
       key: 'email',
-      render: (text) => <span style={{ fontWeight: 'bold' }}>{text}</span>,
+      render: (text: string) => (
+        <Tooltip title={text}>
+          <Text code style={{ fontSize: '12px' }}>
+            {text}
+          </Text>
+        </Tooltip>
+      ),
       ellipsis: true,
     },
     {
       title: 'Device ID',
       dataIndex: 'device_id',
       key: 'device_id',
-      width: '30%',
+      width: '25%',
+      render: (device_id: string) => (
+        <Tooltip title={device_id}>
+          <Text type="secondary" style={{ fontFamily: 'monospace', fontSize: '11px' }}>
+            {device_id ? `${device_id.substring(0, 8)}...${device_id.substring(device_id.length - 8)}` : '-'}
+          </Text>
+        </Tooltip>
+      ),
       ellipsis: true,
     },
     {
-      title: '创建时间',
+      title: (
+        <Space>
+          <CalendarOutlined />
+          创建时间
+        </Space>
+      ),
       dataIndex: 'timestamp',
       key: 'timestamp',
       width: '20%',
-      render: (timestamp) => formatTimestamp(timestamp),
+      render: (timestamp: string) => (
+        <div>
+          <div style={{ fontSize: '12px' }}>
+            {formatTimestamp(timestamp)}
+          </div>
+          <Text type="secondary" style={{ fontSize: '11px' }}>
+            {getRelativeTime(timestamp)}
+          </Text>
+        </div>
+      ),
       sorter: (a, b) => parseInt(a.timestamp || '0') - parseInt(b.timestamp || '0'),
       defaultSortOrder: 'descend',
     }
@@ -236,22 +395,31 @@ const Activate: React.FC = () => {
     onChange: onSelectChange,
   };
 
-  // 结果表格列定义（现在用于成功摘要）
+  // 结果表格列定义
   const successResultColumns: ColumnsType<AccountResult> = [
     {
       title: '邮箱',
       dataIndex: 'account',
       key: 'account',
       width: '50%',
+      render: (account: string) => (
+        <Text strong>{account}</Text>
+      ),
     },
     {
       title: '状态',
       key: 'status',
       width: '30%',
       render: (_, record) => (
-        record.status === 'success' 
-          ? <Tag color="success">已激活{record.updated && ' (数据已更新)'}</Tag>
-          : <Tag color="error">{record.message || '激活失败'}</Tag>
+        record.status === 'success' ? (
+          <Tag color="success" icon={<CheckCircleOutlined />}>
+            已激活{record.updated && ' (数据已更新)'}
+          </Tag>
+        ) : (
+          <Tag color="error" icon={<CloseCircleOutlined />}>
+            {record.message || '激活失败'}
+          </Tag>
+        )
       ),
     },
     {
@@ -263,6 +431,7 @@ const Activate: React.FC = () => {
           <Button 
             type="primary" 
             size="small" 
+            icon={<ReloadOutlined />}
             onClick={() => handleActivateSingle(record.account)}
             loading={loading && activatingAccount === record.account}
           >
@@ -273,85 +442,183 @@ const Activate: React.FC = () => {
     }
   ];
 
+  // 统计信息
+  const getStatistics = () => {
+    const total = accounts.length;
+    const filtered = filteredAccounts.length;
+    const selected = selectedAccounts.length;
+    const successCount = results.filter(r => r.status === 'success').length;
+    const errorCount = results.filter(r => r.status === 'error').length;
+    
+    return { total, filtered, selected, successCount, errorCount };
+  };
+
+  const stats = getStatistics();
+
   return (
     <div className="activate-container">
-      <Card title="PikPak 账号激活" className="activate-card" variant="borderless">
-        <div style={{ marginBottom: '20px' }}>
+      <Card className="activate-card">
+        {/* 激活密钥输入区域 */}
+        <div className="key-input-section">
+          <Alert
+            message="激活密钥获取"
+            description={
+              <span>
+                激活密钥请在 <a href="https://kiteyuan.info" target="_blank" rel="noopener noreferrer">纸鸢佬的导航</a> 获取
+              </span>
+            }
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+          
           <Row gutter={16} align="middle">
-            <Col span={16}>
+            <Col span={14}>
               <Input.Password 
                 placeholder="请输入激活密钥" 
                 value={key} 
                 onChange={e => setKey(e.target.value)} 
                 style={{ width: '100%' }}
                 size="large"
-                disabled={view === 'loading'} // 加载时禁用
+                disabled={view === 'loading'}
               />
             </Col>
-            <Col span={8}>
-              <Space>
-                <Button 
-                  type="primary" 
-                  onClick={handleActivateSelected} 
-                  loading={loading && view === 'loading'} // 仅在加载中且是当前操作时显示loading
-                  disabled={selectedAccounts.length === 0 || view !== 'accounts'} // 仅在账户视图且有选择时可用
-                  size="large"
-                >
-                  激活选定 ({selectedAccounts.length})
-                </Button>
-                <Button 
-                  onClick={handleActivateAll} 
-                  loading={loading && view === 'loading'} // 同上
-                  disabled={view !== 'accounts'} // 仅在账户视图可用
-                  size="large"
-                >
-                  激活全部
-                </Button>
-              </Space>
+            <Col span={10}>
+              <Row justify="end">
+                <Space>
+                  <Button 
+                    type="primary" 
+                    icon={<RocketOutlined />}
+                    onClick={handleActivateSelected} 
+                    loading={loading && view === 'loading'}
+                    disabled={selectedAccounts.length === 0 || view !== 'accounts'}
+                    size="large"
+                  >
+                    激活选定 ({selectedAccounts.length})
+                  </Button>
+                  <Button 
+                    onClick={handleActivateAll} 
+                    loading={loading && view === 'loading'}
+                    disabled={view !== 'accounts'}
+                    size="large"
+                  >
+                    激活全部
+                  </Button>
+                </Space>
+              </Row>
             </Col>
           </Row>
-          <Paragraph style={{ marginTop: '8px', color: '#888' }}>
-            激活密钥在 <a href="https://kiteyuan.info" target="_blank" rel="noopener noreferrer">纸鸢佬的导航</a>
-          </Paragraph>
         </div>
+
+
+
+        {/* 筛选区域 */}
+        {view === 'accounts' && (
+          <div className="filter-section">
+            <Row align="middle" justify="space-between" style={{ marginBottom: 16 }}>
+              <Col>
+                <Title level={4} style={{ margin: 0, color: '#1890ff' }}>
+                  <FilterOutlined style={{ marginRight: 8 }} />
+                  筛选条件
+                </Title>
+              </Col>
+              <Col>
+                <Button 
+                  icon={<ReloadOutlined />}
+                  onClick={loadAccounts}
+                  loading={loadingAccounts}
+                  type="text"
+                >
+                  刷新账户列表
+                </Button>
+              </Col>
+            </Row>
+            <Row gutter={16} align="middle">
+              <Col span={6}>
+                <Select
+                  placeholder="选择邀请码"
+                  value={inviteCodeFilter}
+                  onChange={setInviteCodeFilter}
+                  style={{ width: '100%' }}
+                  allowClear
+                  showSearch
+                >
+                  {availableInviteCodes.map(code => (
+                    <Option key={code} value={code}>
+                      <Badge color="blue" text={code} />
+                    </Option>
+                  ))}
+                </Select>
+              </Col>
+              <Col span={6}>
+                <Input
+                  placeholder="搜索邮箱或名称"
+                  value={emailFilter}
+                  onChange={e => setEmailFilter(e.target.value)}
+                  allowClear
+                />
+              </Col>
+              <Col span={12}>
+                <Row justify="end">
+                  <Space>
+                    <Button 
+                      icon={<ClearOutlined />}
+                      onClick={clearFilters}
+                      disabled={!inviteCodeFilter && !emailFilter}
+                    >
+                      清空筛选
+                    </Button>
+                    <Button 
+                      type="primary"
+                      ghost
+                      icon={<RocketOutlined />}
+                      onClick={handleActivateFiltered}
+                      disabled={filteredAccounts.length === 0}
+                    >
+                      激活筛选结果 ({filteredAccounts.length})
+                    </Button>
+                  </Space>
+                </Row>
+              </Col>
+            </Row>
+          </div>
+        )}
         
         {/* 加载中提示 */} 
         {view === 'loading' && (
-           <div style={{ textAlign: 'center', padding: '40px 0' }}>
-             <Spin size="large" />
-           </div>
+          <div className="loading-section">
+            <Spin size="large" />
+            <div style={{ marginTop: 16 }}>
+              <Text>正在处理激活请求...</Text>
+            </div>
+          </div>
         )}
 
         {/* 账户列表视图 */} 
         {view === 'accounts' && (
-          <div className="accounts-container">
+          <div className="accounts-section">
             <Table
               rowSelection={rowSelection}
               columns={columns}
-              dataSource={accounts}
+              dataSource={filteredAccounts}
               rowKey="filename"
-              loading={loadingAccounts} // 表格自身的加载状态
-              pagination={{ pageSize: 10 }}
+              loading={loadingAccounts}
+              pagination={{ 
+                pageSize: 10,
+                showSizeChanger: true,
+                showQuickJumper: true,
+                showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`
+              }}
               size="middle"
-              locale={{ emptyText: '未找到账户数据，请先注册账户' }}
-              summary={() => (
-                <Table.Summary fixed>
-                  <Table.Summary.Row>
-                    <Table.Summary.Cell index={0} colSpan={columns.length + 1}>
-                      <div style={{ textAlign: 'left', padding: '8px 0' }}>
-                        已选择 {selectedAccounts.length} 个账户 (共 {accounts.length} 个)
-                      </div>
-                    </Table.Summary.Cell>
-                  </Table.Summary.Row>
-                </Table.Summary>
-              )}
+              locale={{ emptyText: '未找到符合条件的账户数据' }}
+              scroll={{ x: 800 }}
             />
           </div>
         )}
         
         {/* 成功摘要视图 */} 
         {view === 'success_summary' && (
-          <div className="results-container" style={{ marginTop: '30px' }}>
+          <div className="results-section">
             <Result
               status="success"
               title="激活操作完成"
@@ -362,16 +629,38 @@ const Activate: React.FC = () => {
                 </Button>,
               ]}
             />
-            {/* 可选：显示简化的成功列表 */} 
+            
+            {/* 激活结果统计 */}
             {results.length > 0 && (
-               <Table
-                 columns={successResultColumns}
-                 dataSource={results} // 显示所有结果，包括成功和失败的
-                 rowKey="account"
-                 pagination={{ pageSize: 5 }} // 分页显示
-                 size="small"
-                 style={{ marginTop: '20px' }}
-               />
+              <div style={{ marginTop: 24 }}>
+                <Row gutter={16} justify="center">
+                  <Col span={8}>
+                    <Statistic 
+                      title="激活成功" 
+                      value={stats.successCount} 
+                      prefix={<CheckCircleOutlined />}
+                      valueStyle={{ color: '#52c41a' }}
+                    />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic 
+                      title="激活失败" 
+                      value={stats.errorCount} 
+                      prefix={<CloseCircleOutlined />}
+                      valueStyle={{ color: '#ff4d4f' }}
+                    />
+                  </Col>
+                </Row>
+                
+                <Table
+                  columns={successResultColumns}
+                  dataSource={results}
+                  rowKey="account"
+                  pagination={{ pageSize: 5 }}
+                  size="small"
+                  style={{ marginTop: 20 }}
+                />
+              </div>
             )}
           </div>
         )}
