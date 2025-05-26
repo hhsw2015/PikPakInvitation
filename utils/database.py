@@ -129,16 +129,12 @@ class DatabaseManager:
             conn = sqlite3.connect(self.db_path)
             try:
                 cursor = conn.cursor()
-
-                logger.info(f"数据库连接成功，开始保存账号信息: {account_info}")
                 
                 # 直接在同一个连接中更新会话活跃时间，避免死锁
                 cursor.execute('''
                     UPDATE sessions SET last_active = CURRENT_TIMESTAMP
                     WHERE session_id = ?
                 ''', (session_id,))
-
-                logger.info(f"开始执行SQL语句")
                 
                 cursor.execute('''
                     INSERT OR REPLACE INTO accounts 
@@ -154,8 +150,6 @@ class DatabaseManager:
                     account_info.get('invite_code', ''),
                     json.dumps(account_info, ensure_ascii=False)
                 ))
-
-                logger.info(f"执行SQL语句成功")
                 
                 conn.commit()
                 logger.info(f"账号 {account_info.get('email')} 保存成功 (会话: {session_id})")
@@ -191,15 +185,18 @@ class DatabaseManager:
                         ORDER BY updated_at DESC
                     ''', (session_id,))
                 
-                # 直接在同一个连接中更新会话活跃时间，避免死锁
+                rows = cursor.fetchall()
+                
+                # 在查询之后更新会话活跃时间，避免影响查询结果
                 if not is_admin:
                     cursor.execute('''
                         UPDATE sessions SET last_active = CURRENT_TIMESTAMP
                         WHERE session_id = ?
                     ''', (session_id,))
+                    conn.commit()  # 提交更新
                 
                 accounts = []
-                for row in cursor.fetchall():
+                for row in rows:
                     account_data = json.loads(row[3]) if row[3] else {}
                     account_data.update({
                         'id': row[0],
