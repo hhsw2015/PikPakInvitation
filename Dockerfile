@@ -24,6 +24,9 @@ RUN mkdir account
 
 RUN mkdir -p templates static
 
+# Create empty database file to ensure proper mounting
+RUN touch accounts.db
+
 COPY run.py ./
 COPY utils/ ./utils/
 

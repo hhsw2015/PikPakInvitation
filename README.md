@@ -70,7 +70,6 @@ docker run -d \
   -e MAIL_POINT_API_URL=https://your-endpoint.com \
   -e ADMIN_SESSION_ID=your_admin_session_id \
   -v $(pwd)/account:/app/account \
-  -v $(pwd)/accounts.db:/app/accounts.db \
   vichus/pikpak-invitation:latest
 ```
 
