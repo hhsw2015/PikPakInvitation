@@ -10,4 +10,5 @@ services:
       - MAIL_POINT_API_URL=https://your-endpoint.com
     volumes:
       - ./account:/app/account
+      - ./accounts.db:/app/accounts.db
     restart: unless-stopped
