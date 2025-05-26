@@ -29,6 +29,7 @@ import {
   SafetyCertificateOutlined,
   MailOutlined,
 } from "@ant-design/icons";
+import { loadConfig, saveConfig, updateConfig } from '../../utils/config';
 
 const { TextArea } = Input;
 
@@ -105,16 +106,26 @@ const Register: React.FC = () => {
     message.success("已重置，可以开始新一轮注册");
   };
 
-  // Load saved invite code on mount
+  // Load saved configuration on mount
   useEffect(() => {
     try {
-      const savedCode = localStorage.getItem("savedInviteCode");
-      if (savedCode) {
-        form.setFieldsValue({ invite_code: savedCode });
-        setSaveInviteCode(true);
-      }
+      const config = loadConfig();
+      
+      // Set form values from config
+      form.setFieldsValue({ 
+        invite_code: config.savedInviteCode,
+        use_proxy: config.useProxy,
+        use_proxy_pool: config.useProxyPool,
+        use_email_proxy: config.useEmailProxy
+      });
+      
+      // Update state
+      setSaveInviteCode(!!config.savedInviteCode);
+      setUseProxy(config.useProxy);
+      setUseProxyPool(config.useProxyPool);
+      setUseEmailProxy(config.useEmailProxy);
     } catch (error) {
-      console.error("无法访问 localStorage:", error);
+      console.error("无法加载配置:", error);
       // Don't block rendering, just log error
     }
   }, [form]); // Run once on mount, depends on form instance
@@ -637,12 +648,12 @@ const Register: React.FC = () => {
     const currentCode = form.getFieldValue("invite_code");
     try {
       if (isChecked && currentCode) {
-        localStorage.setItem("savedInviteCode", currentCode);
+        updateConfig('savedInviteCode', currentCode);
       } else {
-        localStorage.removeItem("savedInviteCode");
+        updateConfig('savedInviteCode', '');
       }
     } catch (error) {
-      console.error("无法访问 localStorage:", error);
+      console.error("无法保存邀请码设置:", error);
       message.error("无法保存邀请码设置，存储不可用。");
     }
   };
@@ -653,14 +664,9 @@ const Register: React.FC = () => {
     const newCode = e.target.value;
     if (saveInviteCode) {
       try {
-        if (newCode) {
-          localStorage.setItem("savedInviteCode", newCode);
-        } else {
-          // If code is cleared while save is checked, remove from storage
-          localStorage.removeItem("savedInviteCode");
-        }
+        updateConfig('savedInviteCode', newCode);
       } catch (error) {
-        console.error("无法访问 localStorage:", error);
+        console.error("无法保存邀请码:", error);
         // Optionally show message, but might be too noisy on every input change
       }
     }
@@ -1323,7 +1329,7 @@ const Register: React.FC = () => {
                 accountInfo: "",
                 use_proxy: false,
                 use_proxy_pool: false,
-                use_email_proxy: true,
+                use_email_proxy: false,
                 proxy_url: "http://127.0.0.1:7890",
               }}
             >
@@ -1367,106 +1373,113 @@ const Register: React.FC = () => {
                   disabled={loading}
                 />
               </Form.Item>
-              <Form.Item
-                label="使用代理"
-                name="use_proxy"
-                valuePropName="checked"
+              
+              <Card 
+                title="代理设置" 
+                size="small" 
+                style={{ marginBottom: 16 }}
+                bordered={true}
               >
-                <Switch
-                  onChange={(checked) => {
-                    setUseProxy(checked);
-                    if (!checked) {
-                      // 关闭代理时，同时关闭代理池和邮件代理
-                      setUseProxyPool(false);
-                      setUseEmailProxy(false);
-                      form.setFieldsValue({ 
-                        use_proxy_pool: false,
-                        use_email_proxy: false 
-                      });
-                    } else {
-                      // 开启代理时，默认开启邮件代理
-                      setUseEmailProxy(true);
-                      form.setFieldsValue({ use_email_proxy: true });
-                    }
-                  }}
-                  disabled={loading}
-                />
-              </Form.Item>
-              {useProxy && (
                 <Form.Item
-                  label="使用内置代理池"
-                  name="use_proxy_pool"
+                  label="使用代理"
+                  name="use_proxy"
                   valuePropName="checked"
-                  tooltip="启用后将自动从代理池中选择可用代理，无需手动输入代理地址"
                 >
-                  <Switch 
+                  <Switch
                     onChange={(checked) => {
-                      setUseProxyPool(checked);
-                      if (checked) {
-                        // 启用代理池时，清空手动输入的代理地址
-                        form.setFieldsValue({ proxy_url: '' });
-                        setProxyTestResult("idle");
-                      }
+                      setUseProxy(checked);
+                      updateConfig('useProxy', checked);
                     }}
-                    disabled={loading} 
+                    disabled={loading}
                   />
                 </Form.Item>
-              )}
-              {useProxy && (
-                <Form.Item
-                  label="获取邮件使用代理"
-                  name="use_email_proxy"
-                  valuePropName="checked"
-                  tooltip="启用后获取邮件验证码时也会使用代理"
-                >
-                  <Switch 
-                    onChange={(checked) => setUseEmailProxy(checked)}
-                    disabled={loading} 
-                  />
-                </Form.Item>
-              )}
-              {useProxy && !useProxyPool && (
-                <Form.Item label="代理地址" required={useProxy}>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "8px",
-                      alignItems: "center",
-                    }}
-                  >
-                    <Form.Item
-                      name="proxy_url"
-                      rules={[
-                        { required: useProxy, message: "请输入代理地址" },
-                      ]}
-                      style={{ flexGrow: 1, marginBottom: 0 }}
+                
+                {useProxy && (
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item
+                        label="使用内置代理池"
+                        name="use_proxy_pool"
+                        valuePropName="checked"
+                        tooltip="启用后将自动从代理池中选择可用代理，无需手动输入代理地址"
+                      >
+                        <Switch 
+                          onChange={(checked) => {
+                            setUseProxyPool(checked);
+                            updateConfig('useProxyPool', checked);
+                            
+                            if (checked) {
+                              // 启用代理池时，清空手动输入的代理地址
+                              form.setFieldsValue({ proxy_url: '' });
+                              setProxyTestResult("idle");
+                            }
+                          }}
+                          disabled={loading} 
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item
+                        label="获取邮件使用代理"
+                        name="use_email_proxy"
+                        valuePropName="checked"
+                        tooltip="启用后获取邮件验证码时也会使用代理"
+                      >
+                        <Switch 
+                          onChange={(checked) => {
+                            setUseEmailProxy(checked);
+                            updateConfig('useEmailProxy', checked);
+                          }}
+                          disabled={loading} 
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                )}
+                
+                {useProxy && !useProxyPool && (
+                  <Form.Item label="代理地址" required={useProxy}>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "8px",
+                        alignItems: "center",
+                      }}
                     >
-                      <Input
-                        placeholder="例如: http://127.0.0.1:7890"
+                      <Form.Item
+                        name="proxy_url"
+                        rules={[
+                          { required: useProxy, message: "请输入代理地址" },
+                        ]}
+                        style={{ flexGrow: 1, marginBottom: 0 }}
+                      >
+                        <Input
+                          placeholder="例如: http://127.0.0.1:7890"
+                          disabled={loading}
+                          onChange={() => setProxyTestResult("idle")}
+                        />
+                      </Form.Item>
+                      <Button
+                        onClick={handleTestProxy}
+                        loading={testingProxy}
                         disabled={loading}
-                        onChange={() => setProxyTestResult("idle")}
-                      />
-                    </Form.Item>
-                    <Button
-                      onClick={handleTestProxy}
-                      loading={testingProxy}
-                      disabled={loading}
-                    >
-                      测试代理
-                    </Button>
-                    {proxyTestResult === "success" && (
-                      <CheckCircleOutlined
-                        style={{ color: "#52c41a", fontSize: "18px" }}
-                      />
-                    )}
-                    {proxyTestResult === "error" && (
-                      <CloseCircleOutlined
-                        style={{ color: "#ff4d4f", fontSize: "18px" }}
-                      />
-                    )}
-                  </div>
-                </Form.Item>
-              )}
+                      >
+                        测试代理
+                      </Button>
+                      {proxyTestResult === "success" && (
+                        <CheckCircleOutlined
+                          style={{ color: "#52c41a", fontSize: "18px" }}
+                        />
+                      )}
+                      {proxyTestResult === "error" && (
+                        <CloseCircleOutlined
+                          style={{ color: "#ff4d4f", fontSize: "18px" }}
+                        />
+                      )}
+                    </div>
+                  </Form.Item>
+                )}
+              </Card>
             </Form>
           </Col>
         </Row>{" "}

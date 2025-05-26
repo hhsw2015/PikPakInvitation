@@ -239,7 +239,23 @@ const MainLayout: React.FC = () => {
 // Simplify the App component
 function App() {
   return (
-    <ConfigProvider locale={zhCN}>
+    <ConfigProvider
+      locale={zhCN}
+      theme={{
+        token: {
+          colorPrimary: '#6366f1',
+          colorPrimaryHover: '#6366f1',
+          colorPrimaryActive: '#6366f1',
+        },
+        components: {
+          Button: {
+            colorPrimaryHover: '#6366f1',
+            colorPrimaryActive: '#6366f1',
+            algorithm: false, // Disable algorithm to prevent auto-generated hover styles
+          }
+        }
+      }}
+    >
       <Router>
         {/* Render MainLayout inside Router */}
         <MainLayout /> 

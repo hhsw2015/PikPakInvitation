@@ -35,6 +35,20 @@ h1 {
   line-height: 1.1;
 }
 
+/* Override Ant Design button hover styles */
+.ant-btn-primary {
+  transition: opacity 0.2s !important;
+  box-shadow: none !important;
+}
+
+.ant-btn-primary:hover, 
+.ant-btn-primary:focus, 
+.ant-btn-primary:active {
+  opacity: 0.9;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
 button {
   border-radius: 8px;
   border: 1px solid transparent;
