@@ -55,7 +55,7 @@ const Register: React.FC = () => {
   const [form] = Form.useForm();
   const [useProxy, setUseProxy] = useState(false);
   const [useProxyPool, setUseProxyPool] = useState(false);
-  const [useEmailProxy, setUseEmailProxy] = useState(true); // 默认开启邮件代理
+  const [_, setUseEmailProxy] = useState(true); // 默认开启邮件代理
   const [loading, setLoading] = useState(false); // Represents the overall batch processing state
   const [accountList, setAccountList] = useState<AccountInfo[]>([]);
   const [processingIndex, setProcessingIndex] = useState<number>(-1); // -1 indicates not started, >= 0 is the index being processed

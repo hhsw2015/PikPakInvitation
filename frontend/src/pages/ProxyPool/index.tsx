@@ -21,7 +21,6 @@ import {
   ExperimentOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
-  InfoCircleOutlined
 } from '@ant-design/icons';
 import { HttpClient } from '../../utils/httpClient';
 import './index.css';
@@ -223,7 +222,7 @@ const ProxyPool: React.FC = () => {
       dataIndex: 'proxy_url',
       key: 'proxy_url',
       ellipsis: true,
-      render: (text: string, record: ProxyInfo) => (
+      render: (text: string) => (
         <Tooltip title={text}>
           <Text code style={{ fontSize: '12px' }}>
             {text.length > 40 ? `${text.substring(0, 40)}...` : text}
