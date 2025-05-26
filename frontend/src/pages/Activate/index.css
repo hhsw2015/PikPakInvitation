@@ -3,9 +3,8 @@
   margin: 0 auto;
   padding: 20px;
   min-height: calc(100vh - 80px);
+  overflow-y: auto; /* Ensure content scrolls independently */
 }
-
-
 
 .activate-card {
   border-radius: 12px;
@@ -19,8 +18,6 @@
   border-radius: 8px;
   margin-bottom: 24px;
 }
-
-
 
 .filter-section {
   background: #f9f9f9;

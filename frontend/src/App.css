@@ -56,6 +56,34 @@ body {
   white-space: nowrap; /* Prevent text wrap when collapsed */
 }
 
+/* Add styles for fixed sidebar and scrollable content */
+.ant-layout-sider-children {
+  overflow-y: hidden !important; /* Prevent sidebar content from scrolling */
+}
+
+.site-layout-background {
+  overflow-y: auto;
+  overflow-x: hidden; /* Hide horizontal scrollbar */
+}
+
+/* Only show scrollbars when needed */
+html, body {
+  overflow: hidden; /* Prevent document-level scrolling */
+}
+
+/* Responsive adjustments for mobile */
+@media (max-width: 768px) {
+  .ant-layout-sider {
+    position: absolute !important;
+    z-index: 100;
+  }
+
+  .ant-layout-content {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+  }
+}
+
 /* Remove the rule for the now-deleted .site-layout element */
 /* 
 .site-layout {

@@ -115,7 +115,20 @@ const MainLayout: React.FC = () => {
   return (
     <>
       <Layout style={{ minHeight: '100vh' }}>
-        <Sider collapsible collapsed={collapsed} onCollapse={(value) => setCollapsed(value)}>
+        <Sider 
+          collapsible 
+          collapsed={collapsed} 
+          onCollapse={(value) => setCollapsed(value)}
+          style={{ 
+            overflow: 'auto',
+            height: '100vh',
+            position: 'fixed',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            zIndex: 10
+          }}
+        >
           <div className="sidebar-logo">
             {collapsed ? "P" : "PikPak 自动邀请"} 
           </div>
@@ -196,43 +209,49 @@ const MainLayout: React.FC = () => {
             </div>
           )}
         </Sider>
-      <Content style={{ margin: '0', width: '100%' }}>
-        <div 
-          className="site-layout-background" 
-          style={{
-            padding: 24, 
-            minHeight: '100vh',
-            background: '#fff', 
-            boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24)'
-          }}
-        >
-          {/* Routes are rendered here, inside the Router context */}
-                      <Routes>
-              <Route path="/" element={<Navigate to="/register" replace />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="/activate" element={<Activate />} />
-              <Route path="/history" element={<History />} />
-              {isAdmin && <Route path="/proxy-pool" element={<ProxyPool />} />}
-            </Routes>
-        </div>
-      </Content>
-    </Layout>
+        <Layout style={{ 
+          marginLeft: collapsed ? 80 : 200,
+          transition: 'margin-left 0.2s'
+        }}>
+          <Content style={{ margin: '0', width: '100%' }}>
+            <div 
+              className="site-layout-background" 
+              style={{
+                padding: 24, 
+                minHeight: '100vh',
+                background: '#fff', 
+                boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24)',
+                overflowY: 'auto'
+              }}
+            >
+              {/* Routes are rendered here, inside the Router context */}
+              <Routes>
+                <Route path="/" element={<Navigate to="/register" replace />} />
+                <Route path="/register" element={<Register />} />
+                <Route path="/activate" element={<Activate />} />
+                <Route path="/history" element={<History />} />
+                {isAdmin && <Route path="/proxy-pool" element={<ProxyPool />} />}
+              </Routes>
+            </div>
+          </Content>
+        </Layout>
+      </Layout>
 
-    {/* 会话管理弹窗 */}
-    <SessionManager
-      visible={showSessionManager}
-      onClose={() => setShowSessionManager(false)}
-      onSessionChange={handleSessionChange}
-      currentSessionId={sessionId}
-      isAdmin={isAdmin}
-    />
+      {/* 会话管理弹窗 */}
+      <SessionManager
+        visible={showSessionManager}
+        onClose={() => setShowSessionManager(false)}
+        onSessionChange={handleSessionChange}
+        currentSessionId={sessionId}
+        isAdmin={isAdmin}
+      />
 
-    {/* 会话初始化弹窗 */}
-    <SessionInitializer
-      visible={showSessionInitializer}
-      onSessionCreated={handleSessionCreated}
-    />
-  </>
+      {/* 会话初始化弹窗 */}
+      <SessionInitializer
+        visible={showSessionInitializer}
+        onSessionCreated={handleSessionCreated}
+      />
+    </>
   );
 };
 
