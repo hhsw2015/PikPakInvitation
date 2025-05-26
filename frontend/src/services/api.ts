@@ -70,30 +70,13 @@ export const fetchAccounts = async () => {
 };
 
 // 删除账号
-export const deleteAccount = async (filename: string) => {
-  const formData = new FormData();
-  formData.append('filename', filename);
-  return api.post('/delete_account', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  });
+export const deleteAccount = async (accountId: string) => {
+  return api.post('/delete_account', { id: accountId });
 };
 
 // 批量删除账号
-export const deleteAccounts = async (filenames: string[]) => {
-  const formData = new FormData();
-  
-  // 将多个文件名添加到 FormData
-  filenames.forEach(filename => {
-    formData.append('filenames', filename);
-  });
-  
-  return api.post('/delete_account', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  });
+export const deleteAccounts = async (accountIds: string[]) => {
+  return api.post('/delete_account', { ids: accountIds });
 };
 
 // 更新账号

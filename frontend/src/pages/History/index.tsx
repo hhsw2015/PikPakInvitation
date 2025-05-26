@@ -99,18 +99,18 @@ const History: React.FC = () => {
 
     setBatchDeleteLoading(true);
     try {
-      // 从选中的键中提取文件名
-      const filenames = selectedRowKeys.map(key => key.toString());
+      // 从选中的键中提取ID
+      const accountIds = selectedRowKeys.map(key => key.toString());
       
       // 调用批量删除API
-      const response = await deleteAccounts(filenames);
+      const response = await deleteAccounts(accountIds);
       
       if (response.data && (response.data.status === 'success' || response.data.status === 'partial')) {
         // 从状态中移除成功删除的账号
         if (response.data.results && response.data.results.success) {
-          const successFilenames = response.data.results.success;
+          const successIds = response.data.results.success;
           setAccounts(prevAccounts => 
-            prevAccounts.filter(acc => !successFilenames.includes(acc.filename))
+            prevAccounts.filter(acc => !successIds.includes(acc.id?.toString()))
           );
         }
         
