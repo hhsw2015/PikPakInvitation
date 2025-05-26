@@ -3,7 +3,7 @@
   margin: 0 auto;
   padding: 20px;
   min-height: calc(100vh - 80px);
-  overflow-y: auto; /* Ensure content scrolls independently */
+  overflow: visible; /* Allow proper scrolling */
 }
 
 .activate-card {

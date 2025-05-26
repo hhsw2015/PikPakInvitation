@@ -211,9 +211,10 @@ const MainLayout: React.FC = () => {
         </Sider>
         <Layout style={{ 
           marginLeft: collapsed ? 80 : 200,
-          transition: 'margin-left 0.2s'
+          transition: 'margin-left 0.2s',
+          height: '100%'
         }}>
-          <Content style={{ margin: '0', width: '100%' }}>
+          <Content style={{ margin: '0', width: '100%', overflow: 'auto' }}>
             <div 
               className="site-layout-background" 
               style={{

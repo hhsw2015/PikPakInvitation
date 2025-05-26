@@ -66,10 +66,10 @@ body {
   overflow-x: hidden; /* Hide horizontal scrollbar */
 }
 
-/* Only show scrollbars when needed */
-html, body {
-  overflow: hidden; /* Prevent document-level scrolling */
-}
+/* Remove the overflow: hidden that's preventing scrolling */
+/* html, body {
+  overflow: hidden;
+} */
 
 /* Responsive adjustments for mobile */
 @media (max-width: 768px) {

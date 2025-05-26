@@ -2,7 +2,7 @@
   padding: 24px;
   background: #f5f5f5;
   min-height: calc(100vh - 48px); /* Subtract padding from viewport height */
-  overflow-y: auto; /* Only scroll when content exceeds viewport height */
+  overflow: visible; /* Allow proper scrolling */
 }
 
 .proxy-pool-container .ant-card {
