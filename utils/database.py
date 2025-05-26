@@ -36,6 +36,8 @@ class DatabaseManager:
                         token TEXT,
                         device_id TEXT,
                         invite_code TEXT,
+                        activation_status INTEGER DEFAULT 0,  -- 激活状态：0=未激活，1+=激活次数
+                        last_activation_time TIMESTAMP,  -- 最后激活时间
                         account_data TEXT,  -- JSON格式存储完整账号信息
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -72,9 +74,13 @@ class DatabaseManager:
                     )
                 ''')
                 
+                # 检查并添加新字段（数据库升级）
+                self._upgrade_database(cursor)
+                
                 # 创建索引
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_session_id ON accounts(session_id)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_email ON accounts(email)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_activation_status ON accounts(activation_status)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_proxy_active ON proxy_pool(is_active)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_proxy_response_time ON proxy_pool(response_time)')
                 
@@ -86,6 +92,24 @@ class DatabaseManager:
                 conn.rollback()
             finally:
                 conn.close()
+    
+    def _upgrade_database(self, cursor):
+        """数据库升级：为现有表添加新字段"""
+        try:
+            # 检查activation_status字段是否存在
+            cursor.execute("PRAGMA table_info(accounts)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'activation_status' not in columns:
+                logger.info("添加activation_status字段...")
+                cursor.execute('ALTER TABLE accounts ADD COLUMN activation_status INTEGER DEFAULT 0')
+            
+            if 'last_activation_time' not in columns:
+                logger.info("添加last_activation_time字段...")
+                cursor.execute('ALTER TABLE accounts ADD COLUMN last_activation_time TIMESTAMP')
+                
+        except Exception as e:
+            logger.error(f"数据库升级失败: {e}")
     
     def create_session(self, session_id: str) -> bool:
         """创建新会话"""
@@ -172,14 +196,14 @@ class DatabaseManager:
                 if is_admin:
                     # 管理员可以看到所有账号
                     cursor.execute('''
-                        SELECT id, session_id, email, account_data, created_at, updated_at
+                        SELECT id, session_id, email, account_data, activation_status, last_activation_time, created_at, updated_at
                         FROM accounts
                         ORDER BY updated_at DESC
                     ''')
                 else:
                     # 普通用户只能看到自己的账号
                     cursor.execute('''
-                        SELECT id, session_id, email, account_data, created_at, updated_at
+                        SELECT id, session_id, email, account_data, activation_status, last_activation_time, created_at, updated_at
                         FROM accounts
                         WHERE session_id = ?
                         ORDER BY updated_at DESC
@@ -202,8 +226,10 @@ class DatabaseManager:
                         'id': row[0],
                         'session_id': row[1],
                         'email': row[2],
-                        'created_at': row[4],
-                        'updated_at': row[5]
+                        'activation_status': row[4] if row[4] is not None else 0,
+                        'last_activation_time': row[5],
+                        'created_at': row[6],
+                        'updated_at': row[7]
                     })
                     accounts.append(account_data)
                 
@@ -288,6 +314,58 @@ class DatabaseManager:
                 
             except Exception as e:
                 logger.error(f"删除账号失败: {e}")
+                conn.rollback()
+                return False
+            finally:
+                conn.close()
+    
+    def update_activation_status(self, session_id: str, account_id: int, is_admin: bool = False) -> bool:
+        """更新账号激活状态（激活次数+1）"""
+        with self.lock:
+            conn = sqlite3.connect(self.db_path)
+            try:
+                cursor = conn.cursor()
+                
+                # 首先获取当前激活状态
+                if is_admin:
+                    cursor.execute('SELECT activation_status FROM accounts WHERE id = ?', (account_id,))
+                else:
+                    cursor.execute('SELECT activation_status FROM accounts WHERE id = ? AND session_id = ?', (account_id, session_id))
+                
+                result = cursor.fetchone()
+                if not result:
+                    return False
+                
+                current_status = result[0] if result[0] is not None else 0
+                new_status = current_status + 1
+                
+                # 更新激活状态和时间
+                if is_admin:
+                    cursor.execute('''
+                        UPDATE accounts 
+                        SET activation_status = ?, 
+                            last_activation_time = CURRENT_TIMESTAMP,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    ''', (new_status, account_id))
+                else:
+                    cursor.execute('''
+                        UPDATE accounts 
+                        SET activation_status = ?, 
+                            last_activation_time = CURRENT_TIMESTAMP,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ? AND session_id = ?
+                    ''', (new_status, account_id, session_id))
+                
+                if cursor.rowcount > 0:
+                    conn.commit()
+                    logger.info(f"账号 {account_id} 激活状态更新为 {new_status}")
+                    return True
+                else:
+                    return False
+                    
+            except Exception as e:
+                logger.error(f"更新激活状态失败: {e}")
                 conn.rollback()
                 return False
             finally:

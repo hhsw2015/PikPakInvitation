@@ -223,6 +223,46 @@ def get_session_info():
             "message": "获取会话信息失败"
         })
 
+@app.route("/api/session/check_admin", methods=["POST"])
+def check_admin():
+    """专门用于检查会话是否为管理员权限"""
+    try:
+        data = request.get_json() or {}
+        session_id = data.get('session_id', '') or request.headers.get('X-Session-ID', '')
+        
+        if not session_id:
+            return jsonify({
+                "status": "error",
+                "message": "缺少会话ID",
+                "is_admin": False
+            })
+        
+        # 验证会话ID格式
+        if not session_manager.is_valid_session_id(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "会话ID格式无效",
+                "is_admin": False
+            })
+        
+        # 检查管理员权限
+        is_admin = session_manager.is_admin(session_id)
+        
+        return jsonify({
+            "status": "success",
+            "session_id": session_id,
+            "is_admin": is_admin,
+            "message": f"会话权限检查完成，{'管理员' if is_admin else '普通用户'}权限"
+        })
+        
+    except Exception as e:
+        logger.error(f"检查管理员权限失败: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "检查管理员权限失败",
+            "is_admin": False
+        })
+
 
 @app.route("/api/initialize", methods=["POST"])
 def initialize():
@@ -319,9 +359,6 @@ def initialize():
         "captcha_token": pikpak.captcha_token, # Store captcha_token here
     }
     user_process_data[email] = user_data
-
-    # 将验证码令牌保存到会话中 - REMOVED
-    # session["captcha_token"] = pikpak.captcha_token
 
     return jsonify(
         {
@@ -1197,6 +1234,211 @@ def serve(path):
         return send_from_directory("static", path)
     # 对于所有其他请求 - 返回index.html (SPA入口点)
     return render_template('index.html')
+
+@app.route("/api/activate_account_with_names", methods=["POST"])
+def activate_account_with_names():
+    """激活账户接口 - 基于数据库版本"""
+    try:
+        # 获取会话ID
+        session_id = request.headers.get('X-Session-ID', '')
+        if not session_id or not session_manager.is_valid_session_id(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "无效的会话ID"
+            })
+
+        # 获取请求参数
+        data = request.get_json() or {}
+        key = data.get("key")
+        names = data.get("names", [])  # 获取指定的账户名称列表
+        all_accounts = data.get("all", False)  # 获取是否处理所有账户的标志
+
+        if not key:
+            return jsonify({"status": "error", "message": "密钥不能为空"})
+            
+        if not all_accounts and (not names or not isinstance(names, list)):
+            return jsonify({"status": "error", "message": "请提供有效的账户名称列表或设置 all=true"})
+
+        # 检查是否为管理员
+        is_admin = session_manager.is_admin(session_id)
+        
+        # 从数据库获取账号列表
+        all_db_accounts = db_manager.get_accounts(session_id, is_admin)
+        
+        if not all_db_accounts:
+            return jsonify({"status": "error", "message": "未找到任何账号数据"})
+
+        # 筛选需要激活的账号
+        accounts_to_activate = []
+        if all_accounts:
+            accounts_to_activate = all_db_accounts
+        else:
+            for account in all_db_accounts:
+                # 使用name或email的用户名部分作为匹配标准
+                account_identifier = account.get('name') or account.get('email', '').split('@')[0]
+                if account_identifier in names:
+                    accounts_to_activate.append(account)
+
+        if not accounts_to_activate:
+            return jsonify({"status": "error", "message": "未找到指定的账号数据"})
+
+        # 使用多线程处理每个账号
+        import threading
+        import queue
+
+        # 创建结果队列
+        result_queue = queue.Queue()
+
+        # 定义线程处理函数
+        def process_account(account, account_key, result_q):
+            try:
+                account_email = account.get("email", "未知邮箱")
+                
+                # 准备发送给激活API的账号信息
+                single_account = {
+                    "captcha_token": account.get("captcha_token", ""),
+                    "timestamp": account.get("timestamp", ""),
+                    "name": account.get("name", ""),
+                    "email": account.get("email", ""),
+                    "password": account.get("password", ""),
+                    "device_id": account.get("device_id", ""),
+                    "version": account.get("version", ""),
+                    "user_id": account.get("user_id", ""),
+                    "access_token": account.get("access_token", ""),
+                    "refresh_token": account.get("refresh_token", ""),
+                }
+
+                response = requests.post(
+                    headers={
+                        "Content-Type": "application/json",
+                        "referer": "https://inject.kiteyuan.info/",
+                        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0",
+                    },
+                    url="https://inject.kiteyuan.info/infoInject",
+                    json={"info": single_account, "key": account_key},
+                    timeout=30,
+                )
+
+                # 将结果放入队列
+                if response.status_code == 200:
+                    api_result = response.json()
+
+                    # 检查API是否返回了正确的数据格式
+                    if isinstance(api_result, dict) and api_result.get("code") == 200 and "data" in api_result:
+                        # 获取返回的数据对象
+                        account_data = api_result.get("data", {})
+                        
+                        if account_data and isinstance(account_data, dict):
+                            # 更新账号信息
+                            updated_account = account.copy()
+
+                            # 更新令牌信息 (从data子对象中提取)
+                            for key_field in ["access_token", "refresh_token", "captcha_token", "timestamp", "device_id", "user_id"]:
+                                if key_field in account_data:
+                                    updated_account[key_field] = account_data[key_field]
+
+                            # 添加激活相关信息，保留原有的邀请码，不覆盖
+                            # updated_account['invite_code'] = account_key  # 不覆盖原有邀请码
+                            updated_account['last_activation'] = int(time.time())
+                            # 记录激活时使用的密钥（可选）
+                            updated_account['last_activation_key'] = account_key
+
+                            # 保存更新后的账号数据到数据库
+                            db_manager.update_account(session_id, account['id'], updated_account, is_admin)
+                            
+                            # 更新激活状态（激活次数+1）
+                            db_manager.update_activation_status(session_id, account['id'], is_admin)
+
+                            # 将更新后的数据放入结果队列
+                            result_q.put(
+                                {
+                                    "status": "success",
+                                    "account": account_email,
+                                    "result": account_data,
+                                    "updated": True,
+                                    "activation_count": account.get('activation_status', 0) + 1,
+                                }
+                            )
+                        else:
+                            # 返回的data不是字典类型
+                            result_q.put(
+                                {
+                                    "status": "error",
+                                    "account": account_email,
+                                    "message": "返回的数据格式不符合预期",
+                                    "result": api_result,
+                                }
+                            )
+                    else:
+                        # API返回错误码或格式不符合预期
+                        error_msg = api_result.get("msg", "未知错误")
+                        result_q.put(
+                            {
+                                "status": "error",
+                                "account": account_email,
+                                "message": f"激活失败: {error_msg}",
+                                "result": api_result,
+                            }
+                        )
+                else:
+                    try:
+                        error_detail = response.json().get('detail', '未知错误')
+                    except:
+                        error_detail = '未知错误'
+                    result_q.put(
+                        {
+                            "status": "error",
+                            "account": account_email,
+                            "message": f"激活失败: HTTP {response.status_code}-{error_detail}",
+                            "result": response.text,
+                        }
+                    )
+            except Exception as e:
+                result_q.put(
+                    {
+                        "status": "error",
+                        "account": account.get("email", "未知邮箱"),
+                        "message": f"处理失败: {str(e)}",
+                    }
+                )
+
+        # 创建并启动线程
+        threads = []
+        for account in accounts_to_activate:
+            thread = threading.Thread(
+                target=process_account, args=(account, key, result_queue)
+            )
+            threads.append(thread)
+            thread.start()
+
+        # 等待所有线程完成
+        for thread in threads:
+            thread.join()
+
+        # 收集所有结果
+        results = []
+        while not result_queue.empty():
+            results.append(result_queue.get())
+
+        # 统计成功和失败的数量
+        success_count = sum(1 for r in results if r["status"] == "success")
+        updated_count = sum(
+            1
+            for r in results
+            if r.get("status") == "success" and r.get("updated", False)
+        )
+
+        return jsonify(
+            {
+                "status": "success",
+                "message": f"账号激活完成: {success_count}/{len(accounts_to_activate)}个成功, {updated_count}个已更新数据",
+                "results": results,
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"激活接口出错: {e}")
+        return jsonify({"status": "error", "message": f"操作失败: {str(e)}"})
 
 if __name__ == "__main__":
     app.run(debug=False, host="0.0.0.0", port=5000)

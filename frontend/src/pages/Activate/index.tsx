@@ -22,6 +22,7 @@ import {
   RocketOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
+  ClockCircleOutlined,
   ReloadOutlined,
   FilterOutlined,
   ClearOutlined,
@@ -46,14 +47,19 @@ interface AccountResult {
 }
 
 interface Account {
+  id: number;
   email: string;
   name: string;
-  filename: string;
   user_id?: string;
   version?: string;
   device_id?: string;
   timestamp?: string;
   invite_code?: string;
+  session_id?: string;
+  activation_status?: number;  // 激活状态：0=未激活，1+=激活次数
+  last_activation_time?: string;  // 最后激活时间
+  created_at?: string;
+  updated_at?: string;
   // 其他账户属性...
 }
 
@@ -103,13 +109,14 @@ const Activate: React.FC = () => {
   // 状态
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [filteredAccounts, setFilteredAccounts] = useState<Account[]>([]);
-  const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
+  const [selectedAccounts, setSelectedAccounts] = useState<number[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [activatingAccount, setActivatingAccount] = useState<string>('');
 
   // 筛选状态
   const [inviteCodeFilter, setInviteCodeFilter] = useState<string>('');
   const [emailFilter, setEmailFilter] = useState<string>('');
+  const [activationStatusFilter, setActivationStatusFilter] = useState<string>('');
   const [availableInviteCodes, setAvailableInviteCodes] = useState<string[]>([]);
 
   // 组件加载时获取账户列表
@@ -134,12 +141,30 @@ const Activate: React.FC = () => {
       );
     }
     
+    if (activationStatusFilter) {
+      filtered = filtered.filter(account => {
+        const status = account.activation_status || 0;
+        switch (activationStatusFilter) {
+          case 'unactivated':
+            return status === 0;
+          case 'activated':
+            return status > 0;
+          case 'once':
+            return status === 1;
+          case 'multiple':
+            return status > 1;
+          default:
+            return true;
+        }
+      });
+    }
+    
     setFilteredAccounts(filtered);
     
     // 清空选择的账户（如果它们不在筛选结果中）
-    const filteredFilenames = filtered.map(acc => acc.filename);
-    setSelectedAccounts(prev => prev.filter(filename => filteredFilenames.includes(filename)));
-  }, [accounts, inviteCodeFilter, emailFilter]);
+    const filteredIds = filtered.map(acc => acc.id);
+    setSelectedAccounts(prev => prev.filter(id => filteredIds.includes(id)));
+  }, [accounts, inviteCodeFilter, emailFilter, activationStatusFilter]);
 
   // 提取可用的邀请码
   useEffect(() => {
@@ -175,13 +200,14 @@ const Activate: React.FC = () => {
 
   // 处理所选行变化
   const onSelectChange = (selectedRowKeys: React.Key[]) => {
-    setSelectedAccounts(selectedRowKeys as string[]);
+    setSelectedAccounts(selectedRowKeys as number[]);
   };
 
   // 清空筛选
   const clearFilters = () => {
     setInviteCodeFilter('');
     setEmailFilter('');
+    setActivationStatusFilter('');
   };
 
   // 激活单个账号
@@ -212,8 +238,16 @@ const Activate: React.FC = () => {
             setResults(updatedResults);
           }
         }
+        
+        // 延迟刷新账号列表以显示最新激活状态
+        setTimeout(() => {
+          loadAccounts();
+        }, 1000);
       } else {
         message.error(data.message || '激活操作返回错误');
+        setTimeout(() => {
+          loadAccounts(); // 失败时也刷新，可能有状态变化
+        }, 500);
       }
     } catch (error: any) {
       console.error('激活错误:', error);
@@ -235,7 +269,13 @@ const Activate: React.FC = () => {
       message.warning('请至少选择一个账户进行激活');
       return;
     }
-    await handleActivate(false, selectedAccounts);
+    
+    // 获取选中账户的名称
+    const selectedAccountNames = accounts
+      .filter(acc => selectedAccounts.includes(acc.id))
+      .map(acc => acc.name || acc.email.split('@')[0]);
+    
+    await handleActivate(false, selectedAccountNames);
   };
 
   // 激活筛选结果中的所有账户
@@ -244,8 +284,8 @@ const Activate: React.FC = () => {
       message.warning('当前筛选结果为空');
       return;
     }
-    const filteredFilenames = filteredAccounts.map(acc => acc.filename);
-    await handleActivate(false, filteredFilenames);
+    const filteredAccountNames = filteredAccounts.map(acc => acc.name || acc.email.split('@')[0]);
+    await handleActivate(false, filteredAccountNames);
   };
 
   // 激活账户通用函数
@@ -272,6 +312,7 @@ const Activate: React.FC = () => {
       } else if (data.status === 'error') {
         message.error(data.message || '激活操作返回错误');
         setView('accounts');
+        // 即使激活失败也刷新一下，可能有部分成功的
       } else {
         message.warning('收到未知的响应状态');
         setView('accounts');
@@ -350,10 +391,45 @@ const Activate: React.FC = () => {
       ellipsis: true,
     },
     {
+      title: (
+        <Space>
+          <CheckCircleOutlined />
+          激活状态
+        </Space>
+      ),
+      dataIndex: 'activation_status',
+      key: 'activation_status',
+      width: '12%',
+      render: (status: number, record: Account) => {
+        const activationStatus = status || 0;
+        if (activationStatus === 0) {
+          return (
+            <Tag color="default" icon={<ClockCircleOutlined />}>
+              未激活
+            </Tag>
+          );
+        } else {
+          return (
+            <div>
+              <Tag color="success" icon={<CheckCircleOutlined />}>
+                {activationStatus}次
+              </Tag>
+              {record.last_activation_time && (
+                <div style={{ fontSize: '10px', color: '#666' }}>
+                  {new Date(record.last_activation_time).toLocaleString('zh-CN')}
+                </div>
+              )}
+            </div>
+          );
+        }
+      },
+      sorter: (a, b) => (a.activation_status || 0) - (b.activation_status || 0),
+    },
+    {
       title: 'Device ID',
       dataIndex: 'device_id',
       key: 'device_id',
-      width: '25%',
+      width: '20%',
       render: (device_id: string) => (
         <Tooltip title={device_id}>
           <Text type="secondary" style={{ fontFamily: 'monospace', fontSize: '11px' }}>
@@ -449,7 +525,21 @@ const Activate: React.FC = () => {
     const successCount = results.filter(r => r.status === 'success').length;
     const errorCount = results.filter(r => r.status === 'error').length;
     
-    return { total, filtered, selected, successCount, errorCount };
+    // 激活状态统计
+    const unactivated = accounts.filter(acc => (acc.activation_status || 0) === 0).length;
+    const activated = accounts.filter(acc => (acc.activation_status || 0) > 0).length;
+    const totalActivations = accounts.reduce((sum, acc) => sum + (acc.activation_status || 0), 0);
+    
+    return { 
+      total, 
+      filtered, 
+      selected, 
+      successCount, 
+      errorCount,
+      unactivated,
+      activated,
+      totalActivations
+    };
   };
 
   const stats = getStatistics();
@@ -509,8 +599,6 @@ const Activate: React.FC = () => {
           </Row>
         </div>
 
-
-
         {/* 筛选区域 */}
         {view === 'accounts' && (
           <div className="filter-section">
@@ -533,7 +621,7 @@ const Activate: React.FC = () => {
               </Col>
             </Row>
             <Row gutter={16} align="middle">
-              <Col span={6}>
+              <Col span={5}>
                 <Select
                   placeholder="选择邀请码"
                   value={inviteCodeFilter}
@@ -549,7 +637,29 @@ const Activate: React.FC = () => {
                   ))}
                 </Select>
               </Col>
-              <Col span={6}>
+              <Col span={5}>
+                <Select
+                  placeholder="激活状态"
+                  value={activationStatusFilter}
+                  onChange={setActivationStatusFilter}
+                  style={{ width: '100%' }}
+                  allowClear
+                >
+                  <Option value="unactivated">
+                    <Tag color="default" icon={<ClockCircleOutlined />}>未激活</Tag>
+                  </Option>
+                  <Option value="activated">
+                    <Tag color="success" icon={<CheckCircleOutlined />}>已激活</Tag>
+                  </Option>
+                  <Option value="once">
+                    <Tag color="blue">激活1次</Tag>
+                  </Option>
+                  <Option value="multiple">
+                    <Tag color="purple">激活多次</Tag>
+                  </Option>
+                </Select>
+              </Col>
+              <Col span={4}>
                 <Input
                   placeholder="搜索邮箱或名称"
                   value={emailFilter}
@@ -557,13 +667,13 @@ const Activate: React.FC = () => {
                   allowClear
                 />
               </Col>
-              <Col span={12}>
+              <Col span={10}>
                 <Row justify="end">
                   <Space>
                     <Button 
                       icon={<ClearOutlined />}
                       onClick={clearFilters}
-                      disabled={!inviteCodeFilter && !emailFilter}
+                      disabled={!inviteCodeFilter && !emailFilter && !activationStatusFilter}
                     >
                       清空筛选
                     </Button>
@@ -578,6 +688,54 @@ const Activate: React.FC = () => {
                     </Button>
                   </Space>
                 </Row>
+              </Col>
+            </Row>
+          </div>
+        )}
+        
+        {/* 激活状态统计 */}
+        {view === 'accounts' && accounts.length > 0 && (
+          <div className="stats-section" style={{ marginBottom: 16 }}>
+            <Row gutter={16}>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic 
+                    title="总账号数" 
+                    value={stats.total} 
+                    prefix={<UserOutlined />}
+                    valueStyle={{ color: '#1890ff' }}
+                  />
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic 
+                    title="未激活" 
+                    value={stats.unactivated} 
+                    prefix={<ClockCircleOutlined />}
+                    valueStyle={{ color: '#faad14' }}
+                  />
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic 
+                    title="已激活" 
+                    value={stats.activated} 
+                    prefix={<CheckCircleOutlined />}
+                    valueStyle={{ color: '#52c41a' }}
+                  />
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic 
+                    title="总激活次数" 
+                    value={stats.totalActivations} 
+                    prefix={<RocketOutlined />}
+                    valueStyle={{ color: '#722ed1' }}
+                  />
+                </Card>
               </Col>
             </Row>
           </div>
@@ -600,7 +758,7 @@ const Activate: React.FC = () => {
               rowSelection={rowSelection}
               columns={columns}
               dataSource={filteredAccounts}
-              rowKey="filename"
+              rowKey="id"
               loading={loadingAccounts}
               pagination={{ 
                 pageSize: 10,

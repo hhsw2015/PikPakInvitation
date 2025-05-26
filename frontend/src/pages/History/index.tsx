@@ -7,6 +7,7 @@ import './index.css';
 const { Text, Paragraph } = Typography;
 
 interface AccountInfo {
+  id?: number;
   name?: string;
   email?: string;
   password?: string;
@@ -19,6 +20,11 @@ interface AccountInfo {
   captcha_token?: string;
   timestamp?: number;
   invite_code?: string; // 新增邀请码字段
+  activation_status?: number;  // 激活状态：0=未激活，1+=激活次数
+  last_activation_time?: string;  // 最后激活时间
+  session_id?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 const History: React.FC = () => {
@@ -58,15 +64,17 @@ const History: React.FC = () => {
     fetchAccounts();
   }, []);
 
-  const handleDelete = async (filename: string) => {
+  const handleDelete = async (accountId: number | string) => {
     setLoading(true);
     try {
       // 调用删除账号API
-      const response = await deleteAccount(filename);
+      const response = await deleteAccount(accountId.toString());
 
       if (response.data && response.data.status === 'success') {
         // 从状态中移除账号
-        setAccounts(prevAccounts => prevAccounts.filter(acc => acc.filename !== filename));
+        setAccounts(prevAccounts => prevAccounts.filter(acc => 
+          acc.id ? acc.id !== accountId : acc.filename !== accountId
+        ));
         message.success(response.data.message || '账号已成功删除');
       } else {
         // 显示API返回的错误消息
@@ -152,12 +160,23 @@ const History: React.FC = () => {
       title: '状态',
       key: 'status',
       render: (_: any, record: AccountInfo) => {
-        if (record.access_token) {
-          return <Tag color="green">已激活</Tag>;
-        } else if (record.email) { // Check if email exists as an indicator of more complete info
-          return <Tag color="orange">未激活</Tag>;
+        const activationStatus = record.activation_status || 0;
+        
+        if (activationStatus === 0) {
+          return <Tag color="default">未激活</Tag>;
+        } else if (activationStatus === 1) {
+          return <Tag color="success">已激活 (1次)</Tag>;
+        } else if (activationStatus > 1) {
+          return <Tag color="purple">已激活 ({activationStatus}次)</Tag>;
         } else {
-          return <Tag color="default">信息不完整</Tag>; // Indicate incomplete info
+          // 兼容旧数据
+          if (record.access_token) {
+            return <Tag color="green">已激活</Tag>;
+          } else if (record.email) {
+            return <Tag color="orange">未激活</Tag>;
+          } else {
+            return <Tag color="default">信息不完整</Tag>;
+          }
         }
       },
     },
@@ -193,7 +212,7 @@ const History: React.FC = () => {
             </Button>
             <Popconfirm
               title="确定要删除此账号吗？"
-              onConfirm={() => handleDelete(record.filename)}
+              onConfirm={() => handleDelete(record.id || record.filename)}
               okText="确定"
               cancelText="取消"
             >
@@ -238,7 +257,7 @@ const History: React.FC = () => {
           rowSelection={rowSelection}
           columns={columns} 
           dataSource={accounts} 
-          rowKey="filename" 
+          rowKey={(record) => record.id?.toString() || record.filename} 
           loading={loading}
           pagination={{ pageSize: 10 }}
         />

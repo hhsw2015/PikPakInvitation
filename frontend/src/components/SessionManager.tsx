@@ -126,7 +126,7 @@ const SessionManager: React.FC<SessionManagerProps> = ({
 
         <Alert
           message="会话隔离说明"
-          description="每个会话ID只能查看和管理自己创建的账号。管理员可以查看所有会话的账号。会话ID长度为6-20位字母数字组合。"
+          description="每个会话ID只能查看和管理自己创建的账号，会话ID长度为6-20位字母数字组合。"
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
@@ -189,15 +189,6 @@ const SessionManager: React.FC<SessionManagerProps> = ({
             生成随机会话ID
           </Button>
         </Space>
-
-        {/* 管理员提示 */}
-        <Alert
-          message="管理员功能"
-          description="如果您是管理员，请输入管理员会话ID以获得查看所有账号的权限。"
-          type="warning"
-          showIcon
-          style={{ marginTop: 16 }}
-        />
       </div>
     </Modal>
   );

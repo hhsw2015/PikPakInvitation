@@ -1,0 +1,11 @@
+{
+  "activation_key": "Acce113945",
+  "api_base_url": "http://localhost:5000",
+  "session_id": "admin",
+  "db_path": "../accounts.db",
+  "min_sleep_seconds": 10,
+  "max_sleep_seconds": 30,
+  "max_retries": 3,
+  "retry_delay_seconds": 5,
+  "max_activation_count": 3
+}
