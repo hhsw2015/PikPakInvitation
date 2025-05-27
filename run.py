@@ -1227,7 +1227,178 @@ def get_email_verification_code_api():
         
         return jsonify({"status": "error", "message": f"处理请求时发生内部错误"}), 500
 
+@app.route("/api/account/vip_info", methods=["POST"])
+def get_vip_info():
+    """查询账号VIP信息"""
+    try:
+        data = request.get_json() or {}
+        token = data.get('token')
+        
+        if not token:
+            return jsonify({
+                "status": "error",
+                "message": "Token不能为空"
+            })
+        
+        # 调用PikPak API查询VIP信息
+        headers = {
+            "accept": "*/*",
+            "accept-language": "zh-CN",
+            "authorization": f"Bearer {token}",
+            "content-type": "application/json",
+            "x-client-id": data.get('client_id', 'YUMx5nI8ZU8Ap8pm'),
+            "x-device-id": data.get('device_id', '')
+        }
+        
+        # 添加可选的captcha token
+        if data.get('captcha_token'):
+            headers["x-captcha-token"] = data.get('captcha_token')
+        
+        response = requests.get(
+            "https://api-drive.mypikpak.com/drive/v1/privilege/vip",
+            headers=headers
+        )
+        
+        return jsonify({
+            "status": "success",
+            "data": response.json()
+        })
+        
+    except Exception as e:
+        logger.error(f"获取VIP信息失败: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"获取VIP信息失败: {str(e)}"
+        })
 
+@app.route("/api/account/invite_code", methods=["POST"])
+def get_invite_code():
+    """查询账号邀请码"""
+    try:
+        data = request.get_json() or {}
+        token = data.get('token')
+        
+        if not token:
+            return jsonify({
+                "status": "error",
+                "message": "Token不能为空"
+            })
+        
+        # 调用PikPak API查询邀请码
+        headers = {
+            "accept": "*/*",
+            "accept-language": "zh-CN",
+            "authorization": f"Bearer {token}",
+            "content-type": "application/json",
+            "x-device-id": data.get('device_id', '')
+        }
+        
+        # 添加可选的captcha token
+        if data.get('captcha_token'):
+            headers["x-captcha-token"] = data.get('captcha_token')
+        
+        response = requests.get(
+            "https://api-drive.mypikpak.com/vip/v1/activity/inviteCode",
+            headers=headers
+        )
+        
+        return jsonify({
+            "status": "success",
+            "data": response.json()
+        })
+        
+    except Exception as e:
+        logger.error(f"获取邀请码失败: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"获取邀请码失败: {str(e)}"
+        })
+
+@app.route("/api/account/invite_list", methods=["POST"])
+def get_invite_list():
+    """查询账号邀请记录"""
+    try:
+        # 验证会话
+        session_id = request.headers.get('X-Session-ID')
+        if not session_manager.is_valid_session_id(session_id):
+            return jsonify({
+                "status": "error",
+                "message": "无效的会话ID"
+            })
+            
+        data = request.get_json() or {}
+        token = data.get('token')
+        limit = data.get('limit', 500)
+        client_id = data.get('client_id', "YNxT9w7GMdWvEOKa")  # 使用默认的client_id
+        
+        if not token:
+            return jsonify({
+                "status": "error",
+                "message": "Token不能为空"
+            })
+        
+        # 调用PikPak API查询邀请记录
+        headers = {
+            "accept": "*/*",
+            "accept-language": "zh-CN",
+            "authorization": f"Bearer {token}",
+            "content-type": "application/json",
+            "x-device-id": data.get('device_id', ''),
+            "x-client-id": client_id  # 添加x-client-id头部
+        }
+        
+        # 添加可选的captcha token
+        if data.get('captcha_token'):
+            headers["x-captcha-token"] = data.get('captcha_token')
+            
+        # 记录请求URL和头部，用于调试
+        request_url = f"https://api-drive.mypikpak.com/vip/v1/activity/inviteList?limit={limit}"
+
+        logger.info(f"发送邀请记录请求: {request_url}")
+        
+        response = requests.get(
+            request_url,
+            headers=headers
+        )
+        
+        if response.status_code == 200:
+            invite_data = response.json()
+            
+            # 在返回数据中添加每个账号的激活信息
+            if 'data' in invite_data and isinstance(invite_data['data'], list):
+                for user in invite_data['data']:
+                    # 从数据库查询账号的激活次数和时间
+                    email = user.get('invited_user', '')
+                    if email:
+                        account_info = db_manager.get_account_by_email(email)
+                        if account_info:
+                            user['activation_status'] = account_info.get('activation_status', 0)
+                            user['last_activation_time'] = account_info.get('last_activation_time', '')
+                            user['created_at'] = account_info.get('created_at', '')
+                        else:
+                            user['activation_status'] = 0
+                            user['last_activation_time'] = ''
+                            user['created_at'] = ''
+            
+            # 记录处理后的响应数据
+            logger.info(f"处理后的邀请记录响应：{invite_data}")
+            
+            return jsonify({
+                "status": "success",
+                "data": invite_data
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": f"查询邀请记录失败: HTTP {response.status_code}",
+                "response": response.text
+            })
+    except Exception as e:
+        logger.error(f"获取邀请记录失败: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"获取邀请记录失败: {str(e)}"
+        })
 
 # 处理所有前端路由
 @app.route('/', defaults={'path': ''})

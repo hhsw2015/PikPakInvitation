@@ -1280,11 +1280,16 @@ const Register: React.FC = () => {
       }
     } else if (current === 2) {
       // 邮箱验证页面
+      const hasVerificationCode = !!form.getFieldValue("verification_code");
+      
       if (registrationError) {
         // 注册失败，重试注册
         handleRetryRegistration();
+      } else if (emailVerificationError && hasVerificationCode) {
+        // 获取验证码失败但用户已手动输入，直接提交注册
+        await handleEmailVerification();
       } else if (emailVerificationError) {
-        // 获取验证码失败，重试获取
+        // 获取验证码失败且无验证码，重试获取
         handleRetryEmailVerification();
       } else {
         // 正常验证
@@ -1333,12 +1338,15 @@ const Register: React.FC = () => {
       mainButtonText = "重试注册";
       mainButtonLoading = emailVerifyLoading;
     } else if (emailVerificationError) {
-      mainButtonText = "重试获取验证码";
-      mainButtonLoading = autoFetchLoading;
+      // 验证码获取失败时，如果有输入验证码则显示"提交验证码"
+      const hasVerificationCode = !!form.getFieldValue("verification_code");
+      mainButtonText = hasVerificationCode ? "提交验证码" : "重试获取验证码";
+      mainButtonLoading = hasVerificationCode ? emailVerifyLoading : autoFetchLoading;
+      mainButtonDisabled = !hasVerificationCode; // 只有在无验证码时禁用按钮
     } else {
       mainButtonText = "验证邮箱";
       mainButtonLoading = emailVerifyLoading;
-      mainButtonDisabled = form.getFieldValue("verification_code") === "";
+      mainButtonDisabled = !form.getFieldValue("verification_code");
     }
   } else if (current === 3) {
     if (allAccountsProcessed) {

@@ -400,11 +400,43 @@ class DatabaseManager:
                         'updated_at': row[5]
                     })
                     return account_data
-                
                 return None
                 
             except Exception as e:
                 logger.error(f"获取账号信息失败: {e}")
+                return None
+            finally:
+                conn.close()
+                
+    def get_account_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """根据邮箱获取账号信息"""
+        with self.lock:
+            conn = sqlite3.connect(self.db_path)
+            try:
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT id, session_id, email, account_data, activation_status, last_activation_time, created_at, updated_at
+                    FROM accounts WHERE email = ?
+                ''', (email,))
+                
+                row = cursor.fetchone()
+                if row:
+                    account_data = json.loads(row[3]) if row[3] else {}
+                    account_data.update({
+                        'id': row[0],
+                        'session_id': row[1],
+                        'email': row[2],
+                        'activation_status': row[4] if row[4] is not None else 0,
+                        'last_activation_time': row[5],
+                        'created_at': row[6],
+                        'updated_at': row[7]
+                    })
+                    return account_data
+                return None
+                
+            except Exception as e:
+                logger.error(f"根据邮箱获取账号信息失败: {e}")
                 return None
             finally:
                 conn.close()

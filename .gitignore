@@ -5,3 +5,5 @@ final_review_gate.py
 accounts.db
 activate_tool/*.log
 activate_tool/activate_config.json
+.cursor
+apis.js

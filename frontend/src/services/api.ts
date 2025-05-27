@@ -170,10 +170,40 @@ export const deleteAccounts = async (accountIds: string[]) => {
 };
 
 // 更新账号
-export const updateAccount = async (filename: string, accountData: any) => {
+export const updateAccount = async (id: string, accountData: any) => {
   return api.post('/update_account', {
-    filename,
+    id,
     account_data: accountData,
+  });
+};
+
+// 账号管理 - 获取VIP信息
+export const getAccountVipInfo = async (accountData: any) => {
+  return api.post('/account/vip_info', {
+    token: accountData.access_token || accountData.token,
+    device_id: accountData.device_id,
+    client_id: accountData.client_id,
+    captcha_token: accountData.captcha_token
+  });
+};
+
+// 账号管理 - 获取邀请码
+export const getAccountInviteCode = async (accountData: any) => {
+  return api.post('/account/invite_code', {
+    token: accountData.access_token || accountData.token,
+    device_id: accountData.device_id,
+    captcha_token: accountData.captcha_token
+  });
+};
+
+// 账号管理 - 获取邀请记录
+export const getAccountInviteList = async (accountData: any, limit: number = 500) => {
+  return api.post('/account/invite_list', {
+    token: accountData.access_token || accountData.token,
+    device_id: accountData.device_id,
+    captcha_token: accountData.captcha_token,
+    client_id: accountData.client_id || "YNxT9w7GMdWvEOKa",
+    limit
   });
 };
 

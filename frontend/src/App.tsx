@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Link, Outlet } from 'react-router-dom';
 import { ConfigProvider, Layout, Menu, Button, Space, Typography } from 'antd';
 import { 
   UserAddOutlined, 
@@ -7,7 +7,8 @@ import {
   HistoryOutlined,
   UserOutlined,
   SwapOutlined,
-  GlobalOutlined
+  GlobalOutlined,
+  IdcardOutlined
 } from '@ant-design/icons';
 import zhCN from 'antd/lib/locale/zh_CN';
 import './App.css';
@@ -17,6 +18,7 @@ import Register from './pages/Register';
 import Activate from './pages/Activate';
 import History from './pages/History';
 import ProxyPool from './pages/ProxyPool';
+import AccountManager from './pages/AccountManager';
 
 // 导入会话管理组件
 import SessionManager from './components/SessionManager';
@@ -102,6 +104,11 @@ const MainLayout: React.FC = () => {
       key: '/history',
       icon: <HistoryOutlined />,
       label: <Link to="/history">历史账号</Link>,
+    },
+    {
+      key: '/account-manager',
+      icon: <IdcardOutlined />,
+      label: <Link to="/account-manager">账号信息</Link>,
     },
     // 只有管理员可以看到代理池管理
     ...(isAdmin ? [{
@@ -225,14 +232,8 @@ const MainLayout: React.FC = () => {
                 overflowY: 'auto'
               }}
             >
-              {/* Routes are rendered here, inside the Router context */}
-              <Routes>
-                <Route path="/" element={<Navigate to="/register" replace />} />
-                <Route path="/register" element={<Register />} />
-                <Route path="/activate" element={<Activate />} />
-                <Route path="/history" element={<History />} />
-                {isAdmin && <Route path="/proxy-pool" element={<ProxyPool />} />}
-              </Routes>
+              {/* Outlet用于渲染子路由 */}
+              <Outlet />
             </div>
           </Content>
         </Layout>
@@ -277,8 +278,16 @@ function App() {
       }}
     >
       <Router>
-        {/* Render MainLayout inside Router */}
-        <MainLayout /> 
+        <Routes>
+          <Route path="/" element={<MainLayout />}>
+            <Route path="/register" element={<Register />} />
+            <Route path="/activate" element={<Activate />} />
+            <Route path="/history" element={<History />} />
+            <Route path="/proxy-pool" element={<ProxyPool />} />
+            <Route path="/account-manager" element={<AccountManager />} />
+            <Route path="/" element={<Navigate to="/register" replace />} />
+          </Route>
+        </Routes>
       </Router>
     </ConfigProvider>
   );
