@@ -1233,18 +1233,11 @@ def get_email_verification_code_api():
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve(path):
-    # 静态文件处理
+    #favicon vite.svg
     if path == 'favicon.ico' or path == 'vite.svg':
-        return send_from_directory("frontend/dist", path)
-    elif path.startswith('assets/'):
-        return send_from_directory("frontend/dist", path)
-    
+        return send_from_directory("static", path)
     # 对于所有其他请求 - 返回index.html (SPA入口点)
-    try:
-        return send_from_directory('frontend/dist', 'index.html')
-    except Exception as e:
-        logger.error(f"Error serving index.html: {e}")
-        return "Frontend not built. Please run 'npm run build' in the frontend directory.", 500
+    return render_template('index.html')
 
 @app.route("/api/activate_account_with_names", methods=["POST"])
 def activate_account_with_names():
