@@ -17,6 +17,11 @@ import {
   Alert,
   Tooltip,
   Badge,
+  Switch,
+  Progress,
+  Modal,
+  InputNumber,
+  Divider,
 } from 'antd';
 import {
   RocketOutlined,
@@ -29,10 +34,11 @@ import {
   UserOutlined,
   MailOutlined,
   CalendarOutlined,
-  GiftOutlined
+  GiftOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import './index.css';
-import { activateAccounts, fetchAccounts } from '../../services/api';
+import { activateAccounts, fetchAccounts, activateAccountsSequential } from '../../services/api';
 import type { ColumnsType } from 'antd/es/table';
 
 const { Title, Text } = Typography;
@@ -103,7 +109,7 @@ const Activate: React.FC = () => {
   const [key, setKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<AccountResult[]>([]);
-  const [view, setView] = useState<'initial' | 'loading' | 'accounts' | 'success_summary'>('initial');
+  const [view, setView] = useState<'initial' | 'loading' | 'accounts' | 'success_summary' | 'sequential_progress'>('initial');
   const [successMessage, setSuccessMessage] = useState<string>('');
   
   // 状态
@@ -112,6 +118,20 @@ const Activate: React.FC = () => {
   const [selectedAccounts, setSelectedAccounts] = useState<number[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [activatingAccount, setActivatingAccount] = useState<string>('');
+
+  // 顺序激活相关状态
+  const [useSequential, setUseSequential] = useState<boolean>(false);
+  const [sequentialProgress, setSequentialProgress] = useState<number>(0);
+  const [sequentialTotal, setSequentialTotal] = useState<number>(0);
+  const [sequentialCurrent, setSequentialCurrent] = useState<number>(0);
+  const [sequentialCurrentAccount, setSequentialCurrentAccount] = useState<string>('');
+  const [sequentialStatus, setSequentialStatus] = useState<string>('');
+  const [sequentialMessage, setSequentialMessage] = useState<string>('');
+  const [sequentialDelay, setSequentialDelay] = useState<number>(0);
+  const [minDelay, setMinDelay] = useState<number>(10);
+  const [maxDelay, setMaxDelay] = useState<number>(30);
+  const [sequentialEventSource, setSequentialEventSource] = useState<EventSource | any | null>(null);
+  const [showSequentialSettings, setShowSequentialSettings] = useState<boolean>(false);
 
   // 筛选状态
   const [inviteCodeFilter, setInviteCodeFilter] = useState<string>('');
@@ -238,16 +258,8 @@ const Activate: React.FC = () => {
             setResults(updatedResults);
           }
         }
-        
-        // 延迟刷新账号列表以显示最新激活状态
-        setTimeout(() => {
-          loadAccounts();
-        }, 1000);
       } else {
         message.error(data.message || '激活操作返回错误');
-        setTimeout(() => {
-          loadAccounts(); // 失败时也刷新，可能有状态变化
-        }, 500);
       }
     } catch (error: any) {
       console.error('激活错误:', error);
@@ -296,10 +308,123 @@ const Activate: React.FC = () => {
     }
 
     setLoading(true);
-    setView('loading');
+    setView(useSequential ? 'sequential_progress' : 'loading');
     setResults([]);
     setSuccessMessage('');
+    
+    // 重置顺序激活状态
+    if (useSequential) {
+      setSequentialProgress(0);
+      setSequentialTotal(activateAll ? accounts.length : names.length);
+      setSequentialCurrent(0);
+      setSequentialCurrentAccount('');
+      setSequentialStatus('start');
+      setSequentialMessage('正在准备激活...');
+      
+      // 清理之前的EventSource
+      if (sequentialEventSource) {
+        sequentialEventSource.close();
+      }
+      
+      // 调用新的SSE API
+      try {
+        const eventSource = await activateAccountsSequential(key, names, activateAll, minDelay, maxDelay);
+        setSequentialEventSource(eventSource);
+        
+        // 设置事件监听器
+        eventSource.onopen = () => {
+          console.log('SSE连接已打开');
+        };
+        
+        // 监听消息事件
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            
+            // 设置状态
+            setSequentialStatus(data.status);
+            
+            if (data.message) {
+              setSequentialMessage(data.message);
+            }
+            
+            switch (data.status) {
+              case 'init':
+                // 初始化消息
+                console.log('SSE连接已初始化，开始处理激活');
+                break;
+                
+              case 'start':
+                setSequentialTotal(data.total || 0);
+                break;
+                
+              case 'processing':
+                setSequentialCurrent(data.current || 0);
+                setSequentialCurrentAccount(data.account || '');
+                setSequentialProgress(Math.floor((data.current / data.total) * 100) - 5); // 减5表示正在处理
+                break;
+                
+              case 'result':
+                if (data.account_result) {
+                  setResults(prev => [...prev, data.account_result]);
+                }
+                setSequentialProgress(Math.floor((data.current / data.total) * 100));
+                break;
+                
+              case 'delay':
+                setSequentialDelay(data.delay || 0);
+                break;
+                
+              case 'complete':
+                setSuccessMessage(data.message || '激活成功完成');
+                if (data.results) {
+                  setResults(data.results);
+                }
+                setSequentialProgress(100);
+                setLoading(false);
+                eventSource.close();
+                setSequentialEventSource(null);
+                // 不自动刷新，用户点击时才刷新
+                break;
+                
+              case 'error':
+                message.error(data.message || '激活过程中发生错误');
+                eventSource.close();
+                setSequentialEventSource(null);
+                setLoading(false);
+                // 不跳转页面，保持在进度页面显示错误
+                setSequentialMessage(data.message || '激活过程中发生错误');
+                break;
+            }
+          } catch (e) {
+            console.error('解析SSE消息错误:', e);
+          }
+        };
+        
+        // 监听错误事件
+        eventSource.onerror = (error) => {
+          console.error('SSE连接错误:', error);
+          message.error('激活过程中连接中断，请刷新页面重试');
+          eventSource.close();
+          setSequentialEventSource(null);
+          setLoading(false);
+          // 不跳转页面，保持在进度页面显示错误
+          setSequentialMessage('激活过程中连接中断，请刷新页面重试');
+        };
+        
+      } catch (error: any) {
+        console.error('创建SSE连接失败:', error);
+        message.error('无法建立激活连接，请检查网络或重试');
+        setLoading(false);
+        // 不跳转页面，保持在进度页面显示错误
+        setSequentialMessage('无法建立激活连接，请检查网络或重试');
+      }
+      
+      // 不需要等待响应，因为使用SSE
+      return;
+    }
 
+    // 以下是常规的一次性激活模式
     try {
       const response = await activateAccounts(key, names, activateAll);
       const data = response.data;
@@ -326,11 +451,31 @@ const Activate: React.FC = () => {
     }
   };
 
-  // 返回账户选择视图
+  // 处理取消顺序激活
+  const handleCancelSequential = () => {
+    if (sequentialEventSource) {
+      sequentialEventSource.close();
+      setSequentialEventSource(null);
+    }
+    setLoading(false);
+    setView('accounts');
+  };
+
+  // 顺序激活设置对话框
+  const showSequentialSettingsModal = () => {
+    setShowSequentialSettings(true);
+  };
+
+  // 关闭顺序激活设置对话框
+  const closeSequentialSettingsModal = () => {
+    setShowSequentialSettings(false);
+  };
+
+  // 返回账户选择视图（用户主动点击）
   const handleContinueActivating = () => {
     setResults([]);
     setSuccessMessage('');
-    loadAccounts();
+    loadAccounts(); // 用户主动点击时刷新
   };
 
   // 表格列定义
@@ -544,157 +689,262 @@ const Activate: React.FC = () => {
 
   const stats = getStatistics();
 
-  return (
-    <div className="activate-container">
-      <Card className="activate-card">
-        {/* 激活密钥输入区域 */}
-        <div className="key-input-section">
-          <Alert
-            message="激活密钥获取"
-            description={
-              <span>
-                激活密钥请在 <a href="https://kiteyuan.info" target="_blank" rel="noopener noreferrer">纸鸢佬的导航</a> 获取
-              </span>
-            }
-            type="info"
-            showIcon
-            style={{ marginBottom: 16 }}
+  // 激活视图内容
+  const renderContent = () => {
+    // 显示进度条视图
+    if (view === 'sequential_progress') {
+      return (
+        <div style={{ padding: '20px', textAlign: 'center' }}>
+          <Card>
+            <Result
+              status="info"
+              title="顺序激活进行中"
+              subTitle={sequentialMessage}
+            />
+            
+            <div style={{ marginTop: '20px', marginBottom: '20px' }}>
+              <Progress 
+                percent={sequentialProgress} 
+                status={sequentialProgress === 100 ? 'success' : 'active'} 
+                format={percent => `${sequentialCurrent}/${sequentialTotal} (${percent}%)`}
+              />
+            </div>
+            
+            {sequentialCurrentAccount && sequentialStatus === 'processing' && (
+              <Alert
+                message={`正在激活: ${sequentialCurrentAccount}`}
+                type="info"
+                showIcon
+                style={{ marginBottom: '20px' }}
+              />
+            )}
+            
+            {sequentialDelay > 0 && sequentialStatus === 'delay' && (
+              <Alert
+                message={`等待 ${sequentialDelay} 秒后继续下一个账号`}
+                type="warning"
+                showIcon
+                style={{ marginBottom: '20px' }}
+              />
+            )}
+            
+            {results.length > 0 && (
+              <div style={{ marginTop: '20px', textAlign: 'left' }}>
+                <Title level={4}>已完成账号</Title>
+                <ul style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                  {results.map((result, index) => (
+                    <li key={index} style={{ marginBottom: '8px' }}>
+                      <Tag color={result.status === 'success' ? 'success' : 'error'}>
+                        {result.status === 'success' ? '成功' : '失败'}
+                      </Tag>
+                      <span style={{ marginLeft: '8px', fontWeight: 'bold' }}>{result.account}</span>
+                      {result.message && (
+                        <span style={{ marginLeft: '8px', color: '#888' }}>{result.message}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            <div style={{ marginTop: '20px' }}>
+              <Space>
+                {sequentialProgress < 100 && !sequentialStatus.includes('error') && sequentialStatus !== 'error' ? (
+                  <Button type="primary" danger onClick={handleCancelSequential}>
+                    取消激活
+                  </Button>
+                ) : sequentialProgress === 100 ? (
+                  <Button type="primary" onClick={handleContinueActivating}>
+                    返回账户列表
+                  </Button>
+                ) : (
+                  <Space>
+                    <Button type="primary" onClick={handleContinueActivating}>
+                      返回账户列表
+                    </Button>
+                    <Button type="primary" danger onClick={() => {
+                      // 重置状态并重新开始激活
+                      setSequentialProgress(0);
+                      setSequentialCurrent(0);
+                      setSequentialTotal(0);
+                      setSequentialCurrentAccount('');
+                      setSequentialMessage('正在准备重新激活...');
+                      setResults([]);
+                      handleActivate(selectedAccounts.length === 0, selectedAccounts.length === 0 ? [] : accounts
+                        .filter(acc => selectedAccounts.includes(acc.id))
+                        .map(acc => acc.name || acc.email.split('@')[0]));
+                    }}>
+                      重新激活
+                    </Button>
+                  </Space>
+                )}
+              </Space>
+            </div>
+          </Card>
+        </div>
+      );
+    }
+
+    // 加载中视图
+    if (view === 'loading') {
+      return (
+        <div className="loading-section" style={{ textAlign: 'center', padding: '40px 0' }}>
+          <Spin size="large" />
+          <div style={{ marginTop: 16 }}>
+            <Text>正在处理激活请求...</Text>
+          </div>
+        </div>
+      );
+    }
+
+    // 成功摘要视图
+    if (view === 'success_summary') {
+      return (
+        <div className="results-section">
+          <Result
+            status="success"
+            title="激活操作完成"
+            subTitle={successMessage}
+            extra={[
+              <Button type="primary" key="continue" onClick={handleContinueActivating}>
+                继续激活
+              </Button>,
+            ]}
           />
           
+          {/* 激活结果统计 */}
+          {results.length > 0 && (
+            <div style={{ marginTop: 24 }}>
+              <Row gutter={16} justify="center">
+                <Col span={8}>
+                  <Statistic 
+                    title="激活成功" 
+                    value={results.filter(r => r.status === 'success').length} 
+                    prefix={<CheckCircleOutlined />}
+                    valueStyle={{ color: '#52c41a' }}
+                  />
+                </Col>
+                <Col span={8}>
+                  <Statistic 
+                    title="激活失败" 
+                    value={results.filter(r => r.status === 'error').length} 
+                    prefix={<CloseCircleOutlined />}
+                    valueStyle={{ color: '#ff4d4f' }}
+                  />
+                </Col>
+              </Row>
+              
+              <Table
+                columns={successResultColumns}
+                dataSource={results}
+                rowKey="account"
+                pagination={{ pageSize: 5 }}
+                size="small"
+                style={{ marginTop: 20 }}
+              />
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // 账户列表视图（默认视图）
+    return (
+      <div>
+        {/* 筛选区域 */}
+        <div className="filter-section">
+          <Row align="middle" justify="space-between" style={{ marginBottom: 16 }}>
+            <Col>
+              <Title level={4} style={{ margin: 0, color: '#1890ff' }}>
+                <FilterOutlined style={{ marginRight: 8 }} />
+                筛选条件
+              </Title>
+            </Col>
+            <Col>
+              <Button 
+                icon={<ReloadOutlined />}
+                onClick={loadAccounts}
+                loading={loadingAccounts}
+                type="text"
+              >
+                刷新账户列表
+              </Button>
+            </Col>
+          </Row>
           <Row gutter={16} align="middle">
-            <Col span={14}>
-              <Input.Password 
-                placeholder="请输入激活密钥" 
-                value={key} 
-                onChange={e => setKey(e.target.value)} 
+            <Col span={5}>
+              <Select
+                placeholder="选择邀请码"
+                value={inviteCodeFilter || undefined}
+                onChange={setInviteCodeFilter}
                 style={{ width: '100%' }}
-                size="large"
-                disabled={view === 'loading'}
+                allowClear
+                showSearch
+              >
+                {availableInviteCodes.map(code => (
+                  <Option key={code} value={code}>
+                    <Badge color="blue" text={code} />
+                  </Option>
+                ))}
+              </Select>
+            </Col>
+            <Col span={5}>
+              <Select
+                placeholder="激活状态"
+                value={activationStatusFilter || undefined}
+                onChange={setActivationStatusFilter}
+                style={{ width: '100%' }}
+                allowClear
+              >
+                <Option value="unactivated">
+                  <Tag color="default" icon={<ClockCircleOutlined />}>未激活</Tag>
+                </Option>
+                <Option value="activated">
+                  <Tag color="success" icon={<CheckCircleOutlined />}>已激活</Tag>
+                </Option>
+                <Option value="once">
+                  <Tag color="blue">激活1次</Tag>
+                </Option>
+                <Option value="multiple">
+                  <Tag color="purple">激活多次</Tag>
+                </Option>
+              </Select>
+            </Col>
+            <Col span={4}>
+              <Input
+                placeholder="搜索邮箱或名称"
+                value={emailFilter}
+                onChange={e => setEmailFilter(e.target.value)}
+                allowClear
               />
             </Col>
             <Col span={10}>
               <Row justify="end">
                 <Space>
                   <Button 
-                    type="primary" 
-                    icon={<RocketOutlined />}
-                    onClick={handleActivateSelected} 
-                    loading={loading && view === 'loading'}
-                    disabled={selectedAccounts.length === 0 || view !== 'accounts'}
-                    size="large"
+                    icon={<ClearOutlined />}
+                    onClick={clearFilters}
+                    disabled={!inviteCodeFilter && !emailFilter && !activationStatusFilter}
                   >
-                    激活选定 ({selectedAccounts.length})
+                    清空筛选
                   </Button>
                   <Button 
-                    onClick={handleActivateAll} 
-                    loading={loading && view === 'loading'}
-                    disabled={view !== 'accounts'}
-                    size="large"
+                    type="primary"
+                    ghost
+                    icon={<RocketOutlined />}
+                    onClick={handleActivateFiltered}
+                    disabled={filteredAccounts.length === 0}
                   >
-                    激活全部
+                    {useSequential ? '顺序激活筛选结果' : '激活筛选结果'} ({filteredAccounts.length})
                   </Button>
                 </Space>
               </Row>
             </Col>
           </Row>
         </div>
-
-        {/* 筛选区域 */}
-        {view === 'accounts' && (
-          <div className="filter-section">
-            <Row align="middle" justify="space-between" style={{ marginBottom: 16 }}>
-              <Col>
-                <Title level={4} style={{ margin: 0, color: '#1890ff' }}>
-                  <FilterOutlined style={{ marginRight: 8 }} />
-                  筛选条件
-                </Title>
-              </Col>
-              <Col>
-                <Button 
-                  icon={<ReloadOutlined />}
-                  onClick={loadAccounts}
-                  loading={loadingAccounts}
-                  type="text"
-                >
-                  刷新账户列表
-                </Button>
-              </Col>
-            </Row>
-            <Row gutter={16} align="middle">
-              <Col span={5}>
-                <Select
-                  placeholder="选择邀请码"
-                  value={inviteCodeFilter}
-                  onChange={setInviteCodeFilter}
-                  style={{ width: '100%' }}
-                  allowClear
-                  showSearch
-                >
-                  {availableInviteCodes.map(code => (
-                    <Option key={code} value={code}>
-                      <Badge color="blue" text={code} />
-                    </Option>
-                  ))}
-                </Select>
-              </Col>
-              <Col span={5}>
-                <Select
-                  placeholder="激活状态"
-                  value={activationStatusFilter}
-                  onChange={setActivationStatusFilter}
-                  style={{ width: '100%' }}
-                  allowClear
-                >
-                  <Option value="unactivated">
-                    <Tag color="default" icon={<ClockCircleOutlined />}>未激活</Tag>
-                  </Option>
-                  <Option value="activated">
-                    <Tag color="success" icon={<CheckCircleOutlined />}>已激活</Tag>
-                  </Option>
-                  <Option value="once">
-                    <Tag color="blue">激活1次</Tag>
-                  </Option>
-                  <Option value="multiple">
-                    <Tag color="purple">激活多次</Tag>
-                  </Option>
-                </Select>
-              </Col>
-              <Col span={4}>
-                <Input
-                  placeholder="搜索邮箱或名称"
-                  value={emailFilter}
-                  onChange={e => setEmailFilter(e.target.value)}
-                  allowClear
-                />
-              </Col>
-              <Col span={10}>
-                <Row justify="end">
-                  <Space>
-                    <Button 
-                      icon={<ClearOutlined />}
-                      onClick={clearFilters}
-                      disabled={!inviteCodeFilter && !emailFilter && !activationStatusFilter}
-                    >
-                      清空筛选
-                    </Button>
-                    <Button 
-                      type="primary"
-                      ghost
-                      icon={<RocketOutlined />}
-                      onClick={handleActivateFiltered}
-                      disabled={filteredAccounts.length === 0}
-                    >
-                      激活筛选结果 ({filteredAccounts.length})
-                    </Button>
-                  </Space>
-                </Row>
-              </Col>
-            </Row>
-          </div>
-        )}
         
         {/* 激活状态统计 */}
-        {view === 'accounts' && accounts.length > 0 && (
+        {accounts.length > 0 && (
           <div className="stats-section" style={{ marginBottom: 16 }}>
             <Row gutter={16}>
               <Col span={6}>
@@ -740,87 +990,142 @@ const Activate: React.FC = () => {
             </Row>
           </div>
         )}
-        
-        {/* 加载中提示 */} 
-        {view === 'loading' && (
-          <div className="loading-section">
-            <Spin size="large" />
-            <div style={{ marginTop: 16 }}>
-              <Text>正在处理激活请求...</Text>
-            </div>
-          </div>
-        )}
 
         {/* 账户列表视图 */} 
-        {view === 'accounts' && (
-          <div className="accounts-section">
-            <Table
-              rowSelection={rowSelection}
-              columns={columns}
-              dataSource={filteredAccounts}
-              rowKey="id"
-              loading={loadingAccounts}
-              pagination={{ 
-                pageSize: 10,
-                showSizeChanger: true,
-                showQuickJumper: true,
-                showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`
-              }}
-              size="middle"
-              locale={{ emptyText: '未找到符合条件的账户数据' }}
-              scroll={{ x: 800 }}
-            />
-          </div>
-        )}
-        
-        {/* 成功摘要视图 */} 
-        {view === 'success_summary' && (
-          <div className="results-section">
-            <Result
-              status="success"
-              title="激活操作完成"
-              subTitle={successMessage}
-              extra={[
-                <Button type="primary" key="continue" onClick={handleContinueActivating}>
-                  继续激活
-                </Button>,
-              ]}
-            />
-            
-            {/* 激活结果统计 */}
-            {results.length > 0 && (
-              <div style={{ marginTop: 24 }}>
-                <Row gutter={16} justify="center">
-                  <Col span={8}>
-                    <Statistic 
-                      title="激活成功" 
-                      value={stats.successCount} 
-                      prefix={<CheckCircleOutlined />}
-                      valueStyle={{ color: '#52c41a' }}
+        <div className="accounts-section">
+          <Table
+            rowSelection={rowSelection}
+            columns={columns}
+            dataSource={filteredAccounts}
+            rowKey="id"
+            loading={loadingAccounts}
+            pagination={{ 
+              pageSize: 10,
+              showSizeChanger: true,
+              showQuickJumper: true,
+              showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`
+            }}
+            size="middle"
+            locale={{ emptyText: '未找到符合条件的账户数据' }}
+            scroll={{ x: 800 }}
+          />
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="activate-container">
+      <Card bordered={false} className="full-height-card">
+        {/* 顶部区域：标题和激活说明 */}
+        <div style={{ marginBottom: 20 }}>
+          <Row gutter={16} align="middle">
+            <Col span={24}>
+              <Alert
+                message="PikPak 账号激活"
+                description={
+                  <span>
+                    请输入激活密钥并选择激活模式，密钥可在 <a href="https://kiteyuan.info" target="_blank" rel="noopener noreferrer">纸鸢佬的导航</a> 获取。
+                    批量模式将同时激活所有账号，顺序模式将逐个激活并显示进度。
+                  </span>
+                }
+                type="info"
+                showIcon
+              />
+            </Col>
+          </Row>
+        </div>
+
+        {/* 激活控制区域 */}
+        <div style={{ marginBottom: 20, background: '#f9f9f9', padding: '15px', borderRadius: '8px' }}>
+          <Row gutter={16} align="middle">
+            <Col span={12}>
+              <Input
+                placeholder="输入激活密钥"
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                style={{ width: '100%' }}
+                size="large"
+              />
+            </Col>
+            <Col span={12}>
+              <Row justify="end">
+                <Space>
+                  <Tooltip title={useSequential ? "顺序激活模式" : "批量激活模式"}>
+                    <Switch
+                      checkedChildren="顺序"
+                      unCheckedChildren="批量"
+                      checked={useSequential}
+                      onChange={(checked) => setUseSequential(checked)}
                     />
-                  </Col>
-                  <Col span={8}>
-                    <Statistic 
-                      title="激活失败" 
-                      value={stats.errorCount} 
-                      prefix={<CloseCircleOutlined />}
-                      valueStyle={{ color: '#ff4d4f' }}
-                    />
-                  </Col>
-                </Row>
-                
-                <Table
-                  columns={successResultColumns}
-                  dataSource={results}
-                  rowKey="account"
-                  pagination={{ pageSize: 5 }}
-                  size="small"
-                  style={{ marginTop: 20 }}
+                  </Tooltip>
+                  {useSequential && (
+                    <Tooltip title="激活设置">
+                      <Button 
+                        type="text" 
+                        icon={<SettingOutlined />} 
+                        onClick={showSequentialSettingsModal}
+                      />
+                    </Tooltip>
+                  )}
+                  <Button 
+                    type="primary" 
+                    icon={<RocketOutlined />}
+                    onClick={handleActivateSelected} 
+                    loading={loading}
+                    disabled={selectedAccounts.length === 0 || view !== 'accounts'}
+                  >
+                    激活选定 ({selectedAccounts.length})
+                  </Button>
+                  <Button 
+                    onClick={handleActivateAll} 
+                    loading={loading}
+                    disabled={view !== 'accounts'}
+                  >
+                    激活全部
+                  </Button>
+                </Space>
+              </Row>
+            </Col>
+          </Row>
+        </div>
+
+        <Modal
+          title="顺序激活设置"
+          open={showSequentialSettings}
+          onOk={closeSequentialSettingsModal}
+          onCancel={closeSequentialSettingsModal}
+        >
+          <div style={{ marginBottom: '16px' }}>
+            <p>设置账号激活间隔时间（秒）：</p>
+            <Row gutter={16}>
+              <Col span={12}>
+                <div style={{ marginBottom: '8px' }}>最小延迟：</div>
+                <InputNumber
+                  min={1}
+                  max={60}
+                  value={minDelay}
+                  onChange={(value) => setMinDelay(value || 10)}
+                  style={{ width: '100%' }}
                 />
-              </div>
-            )}
+              </Col>
+              <Col span={12}>
+                <div style={{ marginBottom: '8px' }}>最大延迟：</div>
+                <InputNumber
+                  min={1}
+                  max={120}
+                  value={maxDelay}
+                  onChange={(value) => setMaxDelay(value || 30)}
+                  style={{ width: '100%' }}
+                />
+              </Col>
+            </Row>
+            <Divider />
+            <p>每次激活后将随机等待上述时间范围内的秒数再激活下一个账号，可有效防止频繁请求导致的封禁。</p>
           </div>
-        )}
+        </Modal>
+
+        {renderContent()}
       </Card>
     </div>
   );

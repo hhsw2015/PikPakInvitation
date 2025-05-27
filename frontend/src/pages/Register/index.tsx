@@ -1000,7 +1000,9 @@ const Register: React.FC = () => {
               <Progress percent={75} status="active" />
             </div>
           );
-        } else if (registrationError) {
+        }
+        
+        if (registrationError) {
           // 注册失败时显示
           return (
             <div
@@ -1053,8 +1055,10 @@ const Register: React.FC = () => {
               </div>
             </div>
           );
-        } else if (emailVerificationError) {
-          // 获取验证码失败时显示
+        }
+        
+        if (emailVerificationError) {
+          // 获取验证码失败时显示输入框和选项
           return (
             <div
               className="step-content-container"
@@ -1081,11 +1085,29 @@ const Register: React.FC = () => {
               <p style={{ color: "#666", marginBottom: "10px" }}>
                 {emailVerificationError}
               </p>
+              <Form form={form}>
+                <Form.Item
+                  label="验证码"
+                  name="verification_code"
+                  style={{ maxWidth: "300px", margin: "0 auto 10px" }}
+                >
+                  <Input placeholder="请手动输入邮箱验证码" />
+                </Form.Item>
+              </Form>
               <div style={{ marginTop: "8px" }}>
                 <Button
                   type="primary"
-                  danger
+                  onClick={handleEmailVerification}
+                  loading={emailVerifyLoading}
+                  disabled={!form.getFieldValue("verification_code")}
+                  style={{ marginRight: "8px" }}
+                >
+                  提交验证码
+                </Button>
+                <Button
+                  type="default"
                   onClick={handleRetryEmailVerification}
+                  loading={autoFetchLoading}
                   style={{ marginRight: "8px" }}
                 >
                   重试获取验证码
@@ -1098,34 +1120,36 @@ const Register: React.FC = () => {
               </div>
             </div>
           );
-        } else {
-          // 默认显示内容
-          return (
+        }
+        
+        // 默认显示内容（包含自动获取验证码功能）
+        return (
+          <div
+            className="step-content-container"
+            style={{ textAlign: "center", padding: "12px" }}
+          >
             <div
-              className="step-content-container"
-              style={{ textAlign: "center", padding: "12px" }}
+              style={{
+                fontSize: "42px",
+                color: "#1890ff",
+                marginBottom: "10px",
+              }}
             >
-              <div
-                style={{
-                  fontSize: "42px",
-                  color: "#1890ff",
-                  marginBottom: "10px",
-                }}
-              >
-                <MailOutlined />
-              </div>
-              <h3
-                style={{
-                  marginBottom: "10px",
-                  fontSize: "18px",
-                  fontWeight: "bold",
-                }}
-              >
-                邮箱验证
-              </h3>
-              <p style={{ color: "#666", marginBottom: "10px" }}>
-                {currentAccount ? `验证码已发送至 ${currentAccount.account}` : "验证码已发送至邮箱"}
-              </p>
+              <MailOutlined />
+            </div>
+            <h3
+              style={{
+                marginBottom: "10px",
+                fontSize: "18px",
+                fontWeight: "bold",
+              }}
+            >
+              邮箱验证
+            </h3>
+            <p style={{ color: "#666", marginBottom: "10px" }}>
+              {currentAccount ? `验证码已发送至 ${currentAccount.account}` : "验证码已发送至邮箱"}
+            </p>
+            <Form form={form}>
               <Form.Item
                 label="验证码"
                 name="verification_code"
@@ -1133,6 +1157,8 @@ const Register: React.FC = () => {
               >
                 <Input placeholder="输入邮箱验证码" />
               </Form.Item>
+            </Form>
+            <div style={{ marginBottom: "10px" }}>
               <Button
                 type="default"
                 onClick={handleAutoFetchCode}
@@ -1141,10 +1167,18 @@ const Register: React.FC = () => {
               >
                 自动获取验证码
               </Button>
-              <Progress percent={60} status="active" style={{ marginTop: "10px" }} />
+              <Button
+                type="primary"
+                onClick={handleEmailVerification}
+                loading={emailVerifyLoading}
+                disabled={!form.getFieldValue("verification_code")}
+              >
+                验证邮箱
+              </Button>
             </div>
-          );
-        }
+            <Progress percent={60} status="active" style={{ marginTop: "10px" }} />
+          </div>
+        );
       })(),
     },
     {

@@ -64,6 +64,96 @@ export const activateAccounts = async (key: string, names: string[], all: boolea
   return api.post('/activate_account_with_names', { key, names, all });
 };
 
+// 顺序激活账号（带SSE支持）
+export const activateAccountsSequential = (key: string, names: string[], all: boolean=false, minDelay: number=10, maxDelay: number=30) => {
+  const sessionId = localStorage.getItem('session_id') || '';
+  
+  // 直接发送POST请求并建立SSE连接
+  const url = '/api/activate_account_sequential';
+  const body = JSON.stringify({ key, names, all, delay_min: minDelay, delay_max: maxDelay });
+  
+  // 使用fetch发送POST请求并获取流式响应
+  return fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Session-ID': sessionId,
+      'Accept': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+    },
+    body: body,
+    credentials: 'include',
+  }).then(response => {
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    if (!response.body) {
+      throw new Error('No response body');
+    }
+    
+    // 创建自定义的EventSource-like对象来处理流式响应
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    
+    const eventSource = {
+      onmessage: null as ((event: any) => void) | null,
+      onerror: null as ((event: any) => void) | null,
+      onopen: null as ((event: any) => void) | null,
+      readyState: 1, // OPEN
+      
+      close: () => {
+        reader.cancel();
+        eventSource.readyState = 2; // CLOSED
+      }
+    };
+    
+    // 触发onopen事件
+    if (eventSource.onopen) {
+      eventSource.onopen({ type: 'open' });
+    }
+    
+    // 读取流数据
+    const readStream = async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            break;
+          }
+          
+          buffer += decoder.decode(value, { stream: true });
+          
+          // 处理SSE格式的数据
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // 保留不完整的行
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6); // 移除 'data: ' 前缀
+              if (data.trim() && eventSource.onmessage) {
+                eventSource.onmessage({ data, type: 'message' });
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('SSE读取错误:', error);
+        if (eventSource.onerror) {
+          eventSource.onerror({ error, type: 'error' });
+        }
+      }
+    };
+    
+    // 开始读取流
+    readStream();
+    
+    return eventSource;
+  });
+};
+
 // 获取账号列表
 export const fetchAccounts = async () => {
   return api.get('/fetch_accounts');

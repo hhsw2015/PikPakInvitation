@@ -8,7 +8,7 @@ import string
 import logging
 
 import requests
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory, Response
 from flask_cors import CORS
 
 
@@ -274,17 +274,21 @@ def initialize():
     invite_code = request.form.get("invite_code", "")
     email = request.form.get("email", "")
     
-    # 如果选择使用代理池，获取随机代理
-    if use_proxy_pool:
+    # 如果选择使用代理池，并且用户已启用代理，获取随机代理
+    if use_proxy and use_proxy_pool:
         random_proxy = db_manager.get_random_proxy()
         if random_proxy:
             proxy_url = random_proxy
-            use_proxy = True
             logger.info(f"使用代理池代理: {proxy_url}")
         else:
-            logger.warning("代理池中没有可用代理，将不使用代理")
-            use_proxy = False
-            use_proxy_pool = False
+            logger.warning("代理池中没有可用代理，将使用用户指定的代理或不使用代理")
+            if not proxy_url:
+                use_proxy = False
+                use_proxy_pool = False
+    elif use_proxy_pool and not use_proxy:
+        # 如果只启用了代理池但没有启用代理，给出提示
+        logger.info("代理池功能已启用，但未启用代理，将不使用代理池")
+        use_proxy_pool = False
 
     # 初始化参数
     current_version = ramdom_version()
@@ -1229,11 +1233,18 @@ def get_email_verification_code_api():
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve(path):
-    #favicon vite.svg
+    # 静态文件处理
     if path == 'favicon.ico' or path == 'vite.svg':
-        return send_from_directory("static", path)
+        return send_from_directory("frontend/dist", path)
+    elif path.startswith('assets/'):
+        return send_from_directory("frontend/dist", path)
+    
     # 对于所有其他请求 - 返回index.html (SPA入口点)
-    return render_template('index.html')
+    try:
+        return send_from_directory('frontend/dist', 'index.html')
+    except Exception as e:
+        logger.error(f"Error serving index.html: {e}")
+        return "Frontend not built. Please run 'npm run build' in the frontend directory.", 500
 
 @app.route("/api/activate_account_with_names", methods=["POST"])
 def activate_account_with_names():
@@ -1431,7 +1442,7 @@ def activate_account_with_names():
         return jsonify(
             {
                 "status": "success",
-                "message": f"账号激活完成: {success_count}/{len(accounts_to_activate)}个成功, {updated_count}个已更新数据",
+                "message": f"激活操作完成。成功: {success_count}, 更新: {updated_count}, 失败: {len(results) - success_count}",
                 "results": results,
             }
         )
@@ -1439,6 +1450,219 @@ def activate_account_with_names():
     except Exception as e:
         logger.error(f"激活接口出错: {e}")
         return jsonify({"status": "error", "message": f"操作失败: {str(e)}"})
+
+@app.route("/api/activate_account_sequential", methods=["GET", "POST"])
+def activate_account_sequential():
+    """按顺序激活账户接口 - 使用SSE逐个激活并实时反馈"""
+    # 为了解决跨域问题，添加CORS头
+    if request.method == "OPTIONS":
+        response = jsonify({"status": "ok"})
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type,X-Session-ID'
+        response.headers['Access-Control-Allow-Methods'] = 'GET,POST'
+        return response
+        
+    # 如果是POST请求，启动SSE流处理
+    if request.method == "POST":
+        try:
+            # 获取会话ID
+            session_id = request.headers.get('X-Session-ID', '')
+            if not session_id or not session_manager.is_valid_session_id(session_id):
+                return jsonify({
+                    "status": "error",
+                    "message": "无效的会话ID"
+                })
+
+            # 获取请求参数
+            data = request.get_json() or {}
+            key = data.get("key")
+            names = data.get("names", [])
+            all_accounts = data.get("all", False)
+            delay_min = data.get("delay_min", 10)
+            delay_max = data.get("delay_max", 30)
+
+            if not key:
+                return jsonify({"status": "error", "message": "密钥不能为空"})
+                
+            if not all_accounts and (not names or not isinstance(names, list)):
+                return jsonify({"status": "error", "message": "请提供有效的账户名称列表或设置 all=true"})
+
+            # 定义SSE生成器函数
+            def generate_activation_events():
+                try:
+                    # 发送开始消息
+                    yield f"data: {json.dumps({'status': 'init', 'message': '开始处理激活请求...'})}\n\n"
+                    
+                    # 检查是否为管理员
+                    is_admin = session_manager.is_admin(session_id)
+                    
+                    # 从数据库获取账号列表
+                    all_db_accounts = db_manager.get_accounts(session_id, is_admin)
+                    
+                    if not all_db_accounts:
+                        yield f"data: {json.dumps({'status': 'error', 'message': '未找到任何账号数据'})}\n\n"
+                        return
+
+                    # 筛选需要激活的账号
+                    accounts_to_activate = []
+                    if all_accounts:
+                        accounts_to_activate = all_db_accounts
+                    else:
+                        for account in all_db_accounts:
+                            account_identifier = account.get('name') or account.get('email', '').split('@')[0]
+                            if account_identifier in names:
+                                accounts_to_activate.append(account)
+
+                    if not accounts_to_activate:
+                        yield f"data: {json.dumps({'status': 'error', 'message': '未找到指定的账号数据'})}\n\n"
+                        return
+                        
+                    # 发送开始信息
+                    total_accounts = len(accounts_to_activate)
+                    yield f"data: {json.dumps({'status': 'start', 'message': f'开始顺序激活 {total_accounts} 个账号', 'total': total_accounts})}\n\n"
+                    
+                    # 逐个处理账号
+                    results = []
+                    success_count = 0
+                    updated_count = 0
+                    
+                    for index, account in enumerate(accounts_to_activate):
+                        account_email = account.get("email", "未知邮箱")
+                        account_name = account.get("name") or account_email.split('@')[0]
+                        
+                        # 发送当前处理的账号信息
+                        yield f"data: {json.dumps({'status': 'processing', 'message': f'正在激活第 {index+1}/{total_accounts} 个账号: {account_name}', 'current': index+1, 'total': total_accounts, 'account': account_name})}\n\n"
+                        
+                        try:
+                            # 准备发送给激活API的账号信息
+                            single_account = {
+                                "captcha_token": account.get("captcha_token", ""),
+                                "timestamp": account.get("timestamp", ""),
+                                "name": account.get("name", ""),
+                                "email": account.get("email", ""),
+                                "password": account.get("password", ""),
+                                "device_id": account.get("device_id", ""),
+                                "version": account.get("version", ""),
+                                "user_id": account.get("user_id", ""),
+                                "access_token": account.get("access_token", ""),
+                                "refresh_token": account.get("refresh_token", ""),
+                            }
+
+                            response = requests.post(
+                                headers={
+                                    "Content-Type": "application/json",
+                                    "referer": "https://inject.kiteyuan.info/",
+                                    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0",
+                                },
+                                url="https://inject.kiteyuan.info/infoInject",
+                                json={"info": single_account, "key": key},
+                                timeout=30,
+                            )
+
+                            result = {}
+                            
+                            # 处理激活结果
+                            if response.status_code == 200:
+                                api_result = response.json()
+
+                                if isinstance(api_result, dict) and api_result.get("code") == 200 and "data" in api_result:
+                                    account_data = api_result.get("data", {})
+                                    
+                                    if account_data and isinstance(account_data, dict):
+                                        # 更新账号信息
+                                        updated_account = account.copy()
+
+                                        # 更新令牌信息
+                                        for key_field in ["access_token", "refresh_token", "captcha_token", "timestamp", "device_id", "user_id"]:
+                                            if key_field in account_data:
+                                                updated_account[key_field] = account_data[key_field]
+
+                                        # 添加激活相关信息
+                                        updated_account['last_activation'] = int(time.time())
+                                        updated_account['last_activation_key'] = key
+
+                                        # 保存更新后的账号数据到数据库
+                                        db_manager.update_account(session_id, account['id'], updated_account, is_admin)
+                                        
+                                        # 更新激活状态（激活次数+1）
+                                        db_manager.update_activation_status(session_id, account['id'], is_admin)
+
+                                        result = {
+                                            "status": "success",
+                                            "account": account_email,
+                                            "result": account_data,
+                                            "updated": True,
+                                            "activation_count": account.get('activation_status', 0) + 1,
+                                        }
+                                        success_count += 1
+                                        updated_count += 1
+                                    else:
+                                        result = {
+                                            "status": "error",
+                                            "account": account_email,
+                                            "message": "返回的数据格式不符合预期",
+                                            "result": api_result,
+                                        }
+                                else:
+                                    error_msg = api_result.get("msg", "未知错误")
+                                    result = {
+                                        "status": "error",
+                                        "account": account_email,
+                                        "message": f"激活失败: {error_msg}",
+                                        "result": api_result,
+                                    }
+                            else:
+                                try:
+                                    error_detail = response.json().get('detail', '未知错误')
+                                except:
+                                    error_detail = '未知错误'
+                                result = {
+                                    "status": "error",
+                                    "account": account_email,
+                                    "message": f"激活失败: HTTP {response.status_code}-{error_detail}",
+                                    "result": response.text,
+                                }
+                        except Exception as e:
+                            result = {
+                                "status": "error",
+                                "account": account_email,
+                                "message": f"处理失败: {str(e)}",
+                            }
+                        
+                        # 记录结果
+                        results.append(result)
+                        
+                        # 发送当前账号的结果
+                        yield f"data: {json.dumps({'status': 'result', 'account_result': result, 'current': index+1, 'total': total_accounts})}\n\n"
+                        
+                        # 如果不是最后一个账号，添加延迟
+                        if index < len(accounts_to_activate) - 1:
+                            delay_time = random.randint(delay_min, delay_max)
+                            yield f"data: {json.dumps({'status': 'delay', 'message': f'等待 {delay_time} 秒后继续下一个账号', 'delay': delay_time})}\n\n"
+                            time.sleep(delay_time)
+                    
+                    # 发送完成消息
+                    yield f"data: {json.dumps({'status': 'complete', 'message': f'激活操作完成。成功: {success_count}, 更新: {updated_count}, 失败: {len(results) - success_count}', 'results': results, 'success_count': success_count, 'updated_count': updated_count, 'failed_count': len(results) - success_count})}\n\n"
+                    
+                except Exception as e:
+                    logger.error(f"激活过程中发生错误: {str(e)}", exc_info=True)
+                    yield f"data: {json.dumps({'status': 'error', 'message': f'激活过程中发生错误: {str(e)}'})}\n\n"
+
+            # 返回SSE响应
+            response = Response(generate_activation_events(), mimetype="text/event-stream")
+            response.headers['Cache-Control'] = 'no-cache'
+            response.headers['X-Accel-Buffering'] = 'no'
+            response.headers['Connection'] = 'keep-alive'
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type,X-Session-ID'
+            return response
+            
+        except Exception as e:
+            logger.error(f"处理激活请求时出错: {str(e)}", exc_info=True)
+            return jsonify({"status": "error", "message": f"处理请求时出错: {str(e)}"})
+    
+    # GET请求返回错误
+    return jsonify({"status": "error", "message": "请使用POST方法发送激活请求"})
 
 if __name__ == "__main__":
     app.run(debug=False, host="0.0.0.0", port=5000)
