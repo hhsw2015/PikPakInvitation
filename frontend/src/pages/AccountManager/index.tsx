@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Table, 
   Card, 
@@ -13,13 +13,16 @@ import {
   Drawer,
   Descriptions,
   Spin,
-  Alert
+  Alert,
+  Input,
+  InputRef
 } from 'antd';
 import { 
   ReloadOutlined, 
   KeyOutlined,
   TeamOutlined,
-  CrownOutlined
+  CrownOutlined,
+  SearchOutlined
 } from '@ant-design/icons';
 import { fetchAccounts, getAccountVipInfo, getAccountInviteCode, getAccountInviteList } from '../../services/api';
 
@@ -27,6 +30,7 @@ const { Text, Title } = Typography;
 
 const AccountManager: React.FC = () => {
   const [accounts, setAccounts] = useState<any[]>([]);
+  const [filteredAccounts, setFilteredAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [vipModalVisible, setVipModalVisible] = useState<boolean>(false);
   const [inviteCodeModalVisible, setInviteCodeModalVisible] = useState<boolean>(false);
@@ -39,6 +43,8 @@ const AccountManager: React.FC = () => {
   const [inviteListLoading, setInviteListLoading] = useState<boolean>(false);
   const [inviteListError, setInviteListError] = useState<string | null>(null);
   const [_, setInviteListInfo] = useState<any>(null);
+  const [searchText, setSearchText] = useState<string>('');
+  const searchInputRef = useRef<InputRef>(null);
 
   // 加载账号列表
   const loadAccounts = async () => {
@@ -46,7 +52,9 @@ const AccountManager: React.FC = () => {
     try {
       const response = await fetchAccounts();
       if (response.data.status === 'success') {
-        setAccounts(response.data.accounts || []);
+        const accountData = response.data.accounts || [];
+        setAccounts(accountData);
+        setFilteredAccounts(accountData);
       } else {
         message.error(response.data.message || '获取账号列表失败');
       }
@@ -62,6 +70,18 @@ const AccountManager: React.FC = () => {
   useEffect(() => {
     loadAccounts();
   }, []);
+
+  // 搜索过滤
+  useEffect(() => {
+    if (searchText) {
+      const filtered = accounts.filter(account => 
+        account.email.toLowerCase().includes(searchText.toLowerCase())
+      );
+      setFilteredAccounts(filtered);
+    } else {
+      setFilteredAccounts(accounts);
+    }
+  }, [searchText, accounts]);
 
   // 查询VIP信息
   const handleViewVipInfo = async (account: any) => {
@@ -238,7 +258,42 @@ const AccountManager: React.FC = () => {
       title: '邮箱',
       dataIndex: 'email',
       key: 'email',
-      render: (text: string) => <Text ellipsis={{tooltip: text}}>{text}</Text>
+      render: (text: string) => <Text ellipsis={{tooltip: text}}>{text}</Text>,
+      filterDropdown: () => (
+        <div style={{ padding: 8 }}>
+          <Input
+            ref={searchInputRef}
+            placeholder="搜索邮箱"
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+            onPressEnter={() => searchInputRef.current?.blur()}
+            style={{ width: 188, marginBottom: 8, display: 'block' }}
+          />
+          <Space>
+            <Button
+              type="primary"
+              onClick={() => searchInputRef.current?.blur()}
+              icon={<SearchOutlined />}
+              size="small"
+              style={{ width: 90 }}
+            >
+              搜索
+            </Button>
+            <Button
+              onClick={() => {
+                setSearchText('');
+              }}
+              size="small"
+              style={{ width: 90 }}
+            >
+              重置
+            </Button>
+          </Space>
+        </div>
+      ),
+      filterIcon: (filtered: boolean) => (
+        <SearchOutlined style={{ color: filtered ? '#1890ff' : undefined }} />
+      ),
     },
     {
       title: '创建时间',
@@ -317,18 +372,28 @@ const AccountManager: React.FC = () => {
       <Card 
         title="账号信息"
         extra={
-          <Button 
-            type="primary" 
-            icon={<ReloadOutlined />} 
-            onClick={loadAccounts}
-            loading={loading}
-          >
-            刷新
-          </Button>
+          <Space>
+            <Input
+              placeholder="搜索邮箱"
+              value={searchText}
+              onChange={e => setSearchText(e.target.value)}
+              style={{ width: 200 }}
+              allowClear
+              prefix={<SearchOutlined />}
+            />
+            <Button 
+              type="primary" 
+              icon={<ReloadOutlined />} 
+              onClick={loadAccounts}
+              loading={loading}
+            >
+              刷新
+            </Button>
+          </Space>
         }
       >
         <Table 
-          dataSource={accounts} 
+          dataSource={filteredAccounts} 
           columns={columns} 
           rowKey="id"
           loading={loading}
@@ -336,7 +401,13 @@ const AccountManager: React.FC = () => {
             pageSize: 10,
             showSizeChanger: true,
             showQuickJumper: true,
-            pageSizeOptions: ['10', '20', '50', '100']
+            pageSizeOptions: ['10', '20', '50', '100'],
+            locale: { items_per_page: '条/页' }
+          }}
+          locale={{
+            filterReset: '重置',
+            filterConfirm: '确定',
+            emptyText: searchText ? '没有找到匹配的数据' : '暂无数据'
           }}
           size="middle"
           bordered
