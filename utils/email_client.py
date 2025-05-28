@@ -260,6 +260,7 @@ class EmailClient:
         Returns:
             找到的验证码字符串，如果未找到或出错则返回None
         """
+        """
         logger.info(f"尝试从邮箱 {email} 的 {mailbox} 获取验证码")
         
         # 调用 get_latest_email 获取邮件内容, 先从INBOX获取
@@ -292,6 +293,86 @@ class EmailClient:
         if not email_content:
             logger.warning(f"邮箱 {email} 的最新邮件数据中未找到 'text' 或 'body' 字段")
             return None
+        """
+
+        #fix by hhsw2015 start                          
+        # 等待 8 秒以确保邮件到达
+        print("sleep 8s")
+        time.sleep(8)
+    
+        print("client_id: " + client_id)
+        print("refresh_token: " + token)
+        print("email: " + email)
+    
+        # 调用 get_latest_email 获取 INBOX 邮件内容
+        inbox_email_data = self.get_latest_email(
+            refresh_token=token,
+            client_id=client_id,
+            email=email,
+            mailbox="INBOX",
+            response_type='json', # 需要JSON格式来解析内容
+            password=password
+        )
+        print("INBOX email data:", inbox_email_data)
+    
+        # 检查 INBOX 是否有来自 mypikpak 的邮件
+        inbox_has_mypikpak = (
+            inbox_email_data
+            and inbox_email_data.get("success")
+            and inbox_email_data.get("data")
+            and len(inbox_email_data["data"]) > 0
+            and "mypikpak" in inbox_email_data["data"][0].get("send", "")
+        )
+    
+        # 调用 get_latest_email 获取 Junk 邮件内容
+        junk_email_data = self.get_latest_email(
+            refresh_token=token,
+            client_id=client_id,
+            email=email,
+            mailbox="Junk",
+            response_type='json',
+            password=password
+        )
+        print("Junk email data:", junk_email_data)
+    
+        # 检查 Junk 是否有来自 mypikpak 的邮件
+        junk_has_mypikpak = (
+            junk_email_data
+            and junk_email_data.get("success")
+            and junk_email_data.get("data")
+            and len(junk_email_data["data"]) > 0
+            and "mypikpak" in junk_email_data["data"][0].get("send", "")
+        )
+    
+        # 选择更新的邮件
+        selected_email_data = None
+        if inbox_has_mypikpak and junk_has_mypikpak:
+            # 比较日期
+            inbox_date = datetime.fromisoformat(inbox_email_data["data"][0]["date"].replace("Z", "+00:00"))
+            junk_date = datetime.fromisoformat(junk_email_data["data"][0]["date"].replace("Z", "+00:00"))
+            logger.info(f"INBOX date: {inbox_date}, Junk date: {junk_date}")
+            selected_email_data = inbox_email_data if inbox_date >= junk_date else junk_email_data
+            logger.info(f"选择更新的邮件：{'INBOX' if inbox_date >= junk_date else 'Junk'}")
+        elif inbox_has_mypikpak:
+            selected_email_data = inbox_email_data
+            logger.info("仅 INBOX 包含 mypikpak 邮件，选择 INBOX")
+        elif junk_has_mypikpak:
+            selected_email_data = junk_email_data
+            logger.info("仅 Junk 包含 mypikpak 邮件，选择 Junk")
+        else:
+            logger.error(f"在 INBOX 和 Junk 中均未找到来自 mypikpak 的邮件")
+            return None
+    
+        # 提取邮件内容
+        email_content = (
+            selected_email_data["data"][0]["text"] or selected_email_data["data"][0]["html"]
+        )
+    
+        if not email_content:
+            logger.warning(f"邮箱 {email} 的最新邮件数据中未找到 'text' 或 'html' 字段")
+            return None
+
+        #fix by hhsw2015 end
 
         # 使用正则表达式搜索验证码
         try:
