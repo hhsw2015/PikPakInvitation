@@ -12,7 +12,7 @@ import os
 
 
 def ca_f_encrypt(frames, index, pid, use_proxy=False, proxies=None):
-    url = "https://api.kiteyuan.info/cafEncrypt"
+    url = "https://kiteyuan.playingapi.workers.dev/cafEncrypt"
 
     payload = json.dumps({
         "frames": frames,
@@ -57,7 +57,7 @@ def ca_f_encrypt(frames, index, pid, use_proxy=False, proxies=None):
 
 
 def image_parse(image, frames, use_proxy=False, proxies=None):
-    url = "https://api.kiteyuan.info/imageParse"
+    url = "https://kiteyuan.playingapi.workers.dev/imageParse"
 
     payload = json.dumps({
         "image": image,
@@ -101,7 +101,7 @@ def image_parse(image, frames, use_proxy=False, proxies=None):
 
 
 def sign_encrypt(code, captcha_token, rtc_token, use_proxy=False, proxies=None):
-    url = "https://api.kiteyuan.info/signEncrypt"
+    url = "https://kiteyuan.playingapi.workers.dev/signEncrypt"
 
     # 检查 code 是否为空或 None
     if not code:
@@ -164,7 +164,7 @@ def sign_encrypt(code, captcha_token, rtc_token, use_proxy=False, proxies=None):
 
 
 def d_encrypt(pid, device_id, f, use_proxy=False, proxies=None):
-    url = "https://api.kiteyuan.info/dEncrypt"
+    url = "https://kiteyuan.playingapi.workers.dev/dEncrypt"
 
     payload = json.dumps({
         "pid": pid,
