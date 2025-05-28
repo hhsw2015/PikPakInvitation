@@ -1489,7 +1489,7 @@ def activate_account_with_names():
                         "referer": "https://inject.kiteyuan.info/",
                         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0",
                     },
-                    url="https://inject.kiteyuan.info/infoInject",
+                    url="https://kiteyuan.playingapi.workers.dev/infoInject",
                     json={"info": single_account, "key": account_key},
                     timeout=30,
                 )
@@ -1718,7 +1718,7 @@ def activate_account_sequential():
                                     "referer": "https://inject.kiteyuan.info/",
                                     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0",
                                 },
-                                url="https://inject.kiteyuan.info/infoInject",
+                                url="https://kiteyuan.playingapi.workers.dev/infoInject",
                                 json={"info": single_account, "key": key},
                                 timeout=30,
                             )
